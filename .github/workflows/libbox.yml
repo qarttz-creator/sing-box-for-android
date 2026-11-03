@@ -31,6 +31,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools  # skip obsolete 'tools' package (setup-android default) that no longer resolves
 
       - name: Install NDK ${{ env.NDK_VERSION }}
         run: |

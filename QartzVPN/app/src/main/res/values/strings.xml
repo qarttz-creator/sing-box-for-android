@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">QartzVPN</string>
+    <string name="config_hint">Вставьте sing-box конфиг (JSON)…</string>
+    <string name="save">Сохранить конфиг</string>
+    <string name="connect">Подключить</string>
+    <string name="disconnect">Отключить</string>
+    <string name="status_disconnected">Отключено</string>
+    <string name="status_connecting">Подключение…</string>
+    <string name="status_connected">Подключено</string>
+    <string name="notif_channel">QartzVPN</string>
+    <string name="notif_title">QartzVPN</string>
+    <string name="notif_connected">Туннель активен</string>
+</resources>

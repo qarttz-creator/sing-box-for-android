@@ -1,0 +1,81 @@
+name: android
+
+# Milestone 2+3: build the QartzVPN Android client (app around the sing-box core)
+# into installable APKs. The native core (libbox.aar) is cached across runs.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "QartzVPN/**"
+      - ".github/workflows/android.yml"
+
+env:
+  SINGBOX_REF: v1.14.4
+  GO_VERSION: "1.25.5"
+  NDK_VERSION: "28.0.13004108"
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install SDK packages
+        run: |
+          sdkmanager --install "ndk;${NDK_VERSION}" "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Cache libbox.aar
+        id: libbox-cache
+        uses: actions/cache@v4
+        with:
+          path: core-out/libbox.aar
+          key: libbox-${{ env.SINGBOX_REF }}-ndk${{ env.NDK_VERSION }}-go${{ env.GO_VERSION }}
+
+      - name: Build libbox.aar (cache miss)
+        if: steps.libbox-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --branch "$SINGBOX_REF" --depth 1 \
+            https://github.com/SagerNet/sing-box sing-box-core
+          cd sing-box-core
+          make lib_install
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          make lib_android
+          mkdir -p "$GITHUB_WORKSPACE/core-out"
+          cp libbox.aar "$GITHUB_WORKSPACE/core-out/libbox.aar"
+
+      - name: Place core into app
+        run: |
+          mkdir -p QartzVPN/app/libs
+          cp core-out/libbox.aar QartzVPN/app/libs/libbox.aar
+          ls -lh QartzVPN/app/libs/
+
+      - name: Build APK
+        working-directory: QartzVPN
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: qartzvpn-apk
+          path: QartzVPN/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

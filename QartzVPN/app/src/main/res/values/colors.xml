@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- quartz / sand / time palette -->
+    <color name="qartz_primary">#C9A24B</color>
+    <color name="qartz_on_primary">#1A1206</color>
+    <color name="qartz_bg">#0E0B16</color>
+</resources>

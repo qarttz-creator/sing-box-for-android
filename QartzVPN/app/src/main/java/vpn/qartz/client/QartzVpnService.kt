@@ -12,6 +12,7 @@ import android.net.IpPrefix
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -292,6 +293,14 @@ class QartzVpnService :
 
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
         val cm = App.connectivity
+        // Track the underlying PHYSICAL network, never the VPN tun. A plain
+        // registerDefaultNetworkCallback() reports our own tun once it is up, so sing-box would
+        // bind proxy sockets back into the tunnel (loop -> "connected but no traffic").
+        // NET_CAPABILITY_NOT_VPN excludes the tun and leaves only wifi/cellular/ethernet.
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) = pushDefaultInterface(listener, network)
             override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) =
@@ -302,8 +311,7 @@ class QartzVpnService :
             }
         }
         networkCallback = callback
-        cm.registerDefaultNetworkCallback(callback)
-        cm.activeNetwork?.let { pushDefaultInterface(listener, it) }
+        cm.registerNetworkCallback(request, callback)
     }
 
     override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {

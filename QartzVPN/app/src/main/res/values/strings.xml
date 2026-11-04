@@ -8,6 +8,14 @@
     <string name="save">Сохранить</string>
     <string name="logs">Логи</string>
     <string name="no_servers">Нет серверов — добавьте ссылку и сохраните</string>
+    <string name="saved">Сохранено</string>
+    <string name="apps_button">Маршрутизация по приложениям</string>
+    <string name="apps_title">Приложения</string>
+    <string name="apps_hint">Отметь приложения, к которым применяется выбранный режим.</string>
+    <string name="apps_loading">Загрузка списка приложений…</string>
+    <string name="mode_off">Выключено (весь трафик в туннель)</string>
+    <string name="mode_exclude">Выбранные — мимо туннеля (игры и т.п.)</string>
+    <string name="mode_include">Только выбранные — в туннель</string>
     <string name="connect">Подключить</string>
     <string name="disconnect">Отключить</string>
     <string name="status_disconnected">Отключено</string>

@@ -52,6 +52,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        binding.appsButton.setOnClickListener {
+            startActivity(Intent(this, AppsActivity::class.java))
+        }
+
         binding.logsButton.setOnClickListener { showLogs() }
 
         VpnState.stage.observe(this) { stage -> render(stage) }

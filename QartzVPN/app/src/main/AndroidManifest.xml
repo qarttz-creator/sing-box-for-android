@@ -25,6 +25,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".AppsActivity"
+            android:exported="false"
+            android:label="@string/apps_title" />
+
         <service
             android:name=".QartzVpnService"
             android:exported="false"

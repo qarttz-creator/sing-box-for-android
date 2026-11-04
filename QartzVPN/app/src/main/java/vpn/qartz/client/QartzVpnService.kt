@@ -67,6 +67,20 @@ class QartzVpnService :
             java.io.File(context.filesDir, "box.log")
     }
 
+    // Per-app routing: translate the saved mode + app set into sing-box override options.
+    private fun perAppOverride(): OverrideOptions {
+        val over = OverrideOptions()
+        val apps = ProfileStore.selectedApps(this)
+        if (apps.isEmpty()) return over
+        when (ProfileStore.routingMode(this)) {
+            ProfileStore.MODE_EXCLUDE ->
+                over.excludePackage = StringArray((apps - packageName).iterator())
+            ProfileStore.MODE_INCLUDE ->
+                over.includePackage = StringArray((apps + packageName).iterator())
+        }
+        return over
+    }
+
     // Force verbose logging into a file we can show in-app, whatever the pasted config says.
     private fun instrumentedConfig(raw: String): String = try {
         val obj = org.json.JSONObject(raw)
@@ -110,7 +124,7 @@ class QartzVpnService :
                 val server = CommandServer(this@QartzVpnService, this@QartzVpnService)
                 server.start()
                 commandServer = server
-                server.startOrReloadService(instrumentedConfig(config), OverrideOptions())
+                server.startOrReloadService(instrumentedConfig(config), perAppOverride())
                 VpnState.set(VpnState.Stage.Connected, "")
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)

@@ -19,6 +19,7 @@ class AppsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityAppsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        applySystemBarInsets(binding.root)
 
         binding.modeSpinner.adapter = ArrayAdapter(
             this,

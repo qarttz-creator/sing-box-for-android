@@ -21,6 +21,7 @@ class ActivationActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityActivationBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        applySystemBarInsets(binding.root)
 
         binding.activateInput.setText(ProfileStore.subUrl(this))
         binding.activateButton.setOnClickListener { activate() }

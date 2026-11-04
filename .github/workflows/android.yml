@@ -43,9 +43,7 @@ jobs:
           packages: platform-tools
 
       - name: Install SDK packages
-        run: |
-          sdkmanager --install "ndk;${NDK_VERSION}" "platforms;android-35" "build-tools;35.0.0"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
 
       - name: Cache libbox.aar
         id: libbox-cache
@@ -57,6 +55,9 @@ jobs:
       - name: Build libbox.aar (cache miss)
         if: steps.libbox-cache.outputs.cache-hit != 'true'
         run: |
+          # NDK is only needed to compile the native core; skip it on cache hits.
+          sdkmanager --install "ndk;${NDK_VERSION}"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/${NDK_VERSION}"
           git clone --branch "$SINGBOX_REF" --depth 1 \
             https://github.com/SagerNet/sing-box sing-box-core
           cd sing-box-core

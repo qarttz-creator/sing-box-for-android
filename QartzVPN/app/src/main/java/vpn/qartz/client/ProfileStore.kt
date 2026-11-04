@@ -10,6 +10,7 @@ object ProfileStore {
     private const val PREFS = "qartz"
     private const val KEY_LINKS = "links"
     private const val KEY_SELECTION = "selection"
+    private const val KEY_SUB_URL = "sub_url"
     private const val KEY_ROUTE_MODE = "route_mode"
     private const val KEY_ROUTE_APPS = "route_apps"
 
@@ -30,6 +31,12 @@ object ProfileStore {
 
     fun saveSelection(c: Context, index: Int) {
         prefs(c).edit().putInt(KEY_SELECTION, index).apply()
+    }
+
+    fun subUrl(c: Context): String = prefs(c).getString(KEY_SUB_URL, "") ?: ""
+
+    fun saveSubUrl(c: Context, url: String) {
+        prefs(c).edit().putString(KEY_SUB_URL, url).apply()
     }
 
     fun routingMode(c: Context): Int = prefs(c).getInt(KEY_ROUTE_MODE, MODE_OFF)

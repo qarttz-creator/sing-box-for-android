@@ -9,6 +9,9 @@ import android.graphics.Typeface
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.concurrent.thread
 import android.widget.ArrayAdapter
 import android.widget.ScrollView
 import android.widget.TextView
@@ -37,7 +40,10 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         binding.configInput.setText(ProfileStore.loadLinks(this))
+        binding.subUrl.setText(ProfileStore.subUrl(this))
         populateSpinner()
+
+        binding.subButton.setOnClickListener { refreshFromSub() }
 
         binding.saveButton.setOnClickListener {
             ProfileStore.saveLinks(this, binding.configInput.text.toString())
@@ -130,6 +136,36 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopVpn() {
         startService(Intent(this, QartzVpnService::class.java).setAction(QartzVpnService.ACTION_STOP))
+    }
+
+    private fun refreshFromSub() {
+        val url = binding.subUrl.text.toString().trim()
+        if (url.isBlank()) {
+            toast(getString(R.string.sub_url_hint))
+            return
+        }
+        ProfileStore.saveSubUrl(this, url)
+        thread {
+            try {
+                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 10000
+                    readTimeout = 10000
+                    requestMethod = "GET"
+                }
+                val code = conn.responseCode
+                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                conn.disconnect()
+                if (code !in 200..299 || text.isBlank()) throw RuntimeException("HTTP $code")
+                runOnUiThread {
+                    binding.configInput.setText(text)
+                    ProfileStore.saveLinks(this, text)
+                    populateSpinner()
+                    toast(getString(R.string.sub_updated))
+                }
+            } catch (e: Exception) {
+                runOnUiThread { toast(getString(R.string.sub_error) + ": " + (e.message ?: "")) }
+            }
+        }
     }
 
     private fun showLogs() {

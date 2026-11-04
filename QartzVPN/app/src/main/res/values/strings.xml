@@ -2,6 +2,10 @@
     <string name="app_name">QartzVPN</string>
     <string name="config_hint">Вставьте sing-box конфиг (JSON)…</string>
     <string name="server">Сервер</string>
+    <string name="sub_url_hint">URL подписки (https://…/sub?token=…)</string>
+    <string name="sub_update">Обновить из подписки</string>
+    <string name="sub_updated">Серверы обновлены из подписки</string>
+    <string name="sub_error">Ошибка подписки</string>
     <string name="auto_server">Авто (все, автовыбор)</string>
     <string name="links_label">Серверы (ссылки vless:// / hysteria2://, по одной на строку)</string>
     <string name="links_hint">vless://…\nhysteria2://…\n(или вставьте целиком sing-box JSON, начав с «{»)</string>

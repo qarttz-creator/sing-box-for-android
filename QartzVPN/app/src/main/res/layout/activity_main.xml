@@ -41,6 +41,26 @@
             android:textSize="18sp"
             android:paddingBottom="12dp" />
 
+        <EditText
+            android:id="@+id/subUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#1C1830"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:hint="@string/sub_url_hint"
+            android:inputType="textUri|textNoSuggestions"
+            android:padding="9dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/subButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="14dp"
+            android:text="@string/sub_update" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

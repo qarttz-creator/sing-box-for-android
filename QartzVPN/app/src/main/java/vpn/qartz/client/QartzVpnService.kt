@@ -153,10 +153,13 @@ class QartzVpnService :
         monitorJob = scope.launch {
             var connected = false
             var fails = 0
+            var hbTick = 0
             while (isActive && running) {
                 if (probeTunnel()) {
                     fails = 0
                     if (!connected) { connected = true; VpnState.set(VpnState.Stage.Connected, "") }
+                    if (hbTick % 4 == 0) sendHeartbeat()  // ~every 60s
+                    hbTick++
                 } else {
                     fails++
                     if (fails >= 2) {
@@ -166,6 +169,30 @@ class QartzVpnService :
                 }
                 delay(if (connected) 15000L else 4000L)
             }
+        }
+    }
+
+    // Report this client's online status to the control plane (derived from the saved sub URL).
+    private fun sendHeartbeat() {
+        val sub = ProfileStore.subUrl(this)
+        if (sub.isBlank()) return
+        try {
+            val u = URL(sub)
+            val token = android.net.Uri.parse(sub).getQueryParameter("token") ?: return
+            val base = "${u.protocol}://${u.authority}"
+            val conn = (URL("$base/hb").openConnection() as HttpURLConnection).apply {
+                connectTimeout = 5000
+                readTimeout = 5000
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+            }
+            val body = """{"token":"$token","version":"${BuildConfig.VERSION_NAME}","gateway":"","platform":"android"}"""
+            conn.outputStream.use { it.write(body.toByteArray()) }
+            conn.responseCode
+            conn.disconnect()
+        } catch (e: Exception) {
+            // best-effort
         }
     }
 

@@ -43,12 +43,17 @@ import io.nekohasekai.libbox.WIFIState
 import io.nekohasekai.libbox.NeighborUpdateListener
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.net.HttpURLConnection
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.InterfaceAddress
+import java.net.URL
 import java.net.NetworkInterface as JavaNetworkInterface
 import io.nekohasekai.libbox.NetworkInterface as LibboxNetworkInterface
 
@@ -98,6 +103,7 @@ class QartzVpnService :
     private var commandServer: CommandServer? = null
     private var fileDescriptor: ParcelFileDescriptor? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var monitorJob: Job? = null
     @Volatile
     private var running = false
 
@@ -125,7 +131,9 @@ class QartzVpnService :
                 server.start()
                 commandServer = server
                 server.startOrReloadService(instrumentedConfig(config), perAppOverride())
-                VpnState.set(VpnState.Stage.Connected, "")
+                // Tunnel is up; only report "Connected" once traffic actually flows through it.
+                VpnState.set(VpnState.Stage.Connecting, "")
+                startConnectivityMonitor()
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)
                 fail(e.message ?: e.toString())
@@ -139,12 +147,50 @@ class QartzVpnService :
         stopVpn()
     }
 
+    // Report "Connected" only when a probe actually passes through the tunnel; flip back if it stops.
+    private fun startConnectivityMonitor() {
+        monitorJob?.cancel()
+        monitorJob = scope.launch {
+            var connected = false
+            var fails = 0
+            while (isActive && running) {
+                if (probeTunnel()) {
+                    fails = 0
+                    if (!connected) { connected = true; VpnState.set(VpnState.Stage.Connected, "") }
+                } else {
+                    fails++
+                    if (fails >= 2) {
+                        connected = false
+                        VpnState.set(VpnState.Stage.Connecting, "нет ответа через туннель…")
+                    }
+                }
+                delay(if (connected) 15000L else 4000L)
+            }
+        }
+    }
+
+    private fun probeTunnel(): Boolean = try {
+        val c = (URL("http://www.gstatic.com/generate_204").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 5000
+            readTimeout = 5000
+            instanceFollowRedirects = false
+            requestMethod = "GET"
+        }
+        val code = c.responseCode
+        c.disconnect()
+        code == 204 || code in 200..299
+    } catch (e: Exception) {
+        false
+    }
+
     private fun stopVpn() {
         if (!running && commandServer == null) {
             stopSelfCompat()
             return
         }
         running = false
+        monitorJob?.cancel()
+        monitorJob = null
         scope.launch {
             runCatching { commandServer?.closeService() }
             runCatching { commandServer?.close() }

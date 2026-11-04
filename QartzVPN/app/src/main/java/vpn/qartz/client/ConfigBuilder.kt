@@ -29,8 +29,10 @@ object ConfigBuilder {
                 .put("tag", GROUP)
                 .put("outbounds", groupMembers)
                 .put("url", TEST_URL)
-                .put("interval", "3m")
-                .put("tolerance", 50),
+                .put("interval", "30s")                     // fast health re-check for quick failover
+                .put("tolerance", 100)
+                .put("idle_timeout", "5m")
+                .put("interrupt_exist_connections", true),  // drop dead-gateway conns on switch
         )
         outbounds.put(JSONObject().put("type", "direct").put("tag", "direct"))
 

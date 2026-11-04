@@ -81,6 +81,13 @@ class MainActivity : AppCompatActivity() {
                 else -> R.string.status_disconnected
             },
         )
+        binding.status.setTextColor(
+            when (stage) {
+                VpnState.Stage.Connected -> 0xFF4CAF50.toInt()   // green
+                VpnState.Stage.Connecting -> 0xFFE0A52B.toInt()  // amber
+                else -> 0xFF9AA0A6.toInt()                       // grey
+            },
+        )
         binding.connectButton.setText(
             if (stage == VpnState.Stage.Disconnected) R.string.connect else R.string.disconnect,
         )

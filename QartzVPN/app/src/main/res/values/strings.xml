@@ -1,8 +1,13 @@
 <resources>
     <string name="app_name">QartzVPN</string>
     <string name="config_hint">Вставьте sing-box конфиг (JSON)…</string>
-    <string name="save">Сохранить конфиг</string>
+    <string name="server">Сервер</string>
+    <string name="auto_server">Авто (все, автовыбор)</string>
+    <string name="links_label">Серверы (ссылки vless:// / hysteria2://, по одной на строку)</string>
+    <string name="links_hint">vless://…\nhysteria2://…\n(или вставьте целиком sing-box JSON, начав с «{»)</string>
+    <string name="save">Сохранить</string>
     <string name="logs">Логи</string>
+    <string name="no_servers">Нет серверов — добавьте ссылку и сохраните</string>
     <string name="connect">Подключить</string>
     <string name="disconnect">Отключить</string>
     <string name="status_disconnected">Отключено</string>

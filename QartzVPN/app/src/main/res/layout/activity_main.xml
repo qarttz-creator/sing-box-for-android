@@ -25,7 +25,20 @@
             android:gravity="center"
             android:text="@string/status_disconnected"
             android:textSize="18sp"
-            android:paddingBottom="16dp" />
+            android:paddingBottom="12dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/server"
+            android:textSize="13sp" />
+
+        <Spinner
+            android:id="@+id/serverSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="14dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/connectButton"
@@ -34,19 +47,27 @@
             android:text="@string/connect"
             android:textSize="18sp" />
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/links_label"
+            android:textSize="13sp" />
+
         <EditText
             android:id="@+id/configInput"
             android:layout_width="match_parent"
-            android:layout_height="320dp"
-            android:layout_marginTop="20dp"
+            android:layout_height="240dp"
+            android:layout_marginTop="4dp"
             android:background="#1C1830"
             android:textColor="#FFFFFF"
             android:fontFamily="monospace"
             android:gravity="top|start"
-            android:hint="@string/config_hint"
+            android:hint="@string/links_hint"
             android:inputType="textMultiLine|textNoSuggestions"
             android:padding="10dp"
-            android:scrollbars="vertical" />
+            android:scrollbars="vertical"
+            android:textSize="12sp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/saveButton"

@@ -9,6 +9,7 @@ import android.graphics.Typeface
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.widget.ArrayAdapter
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -35,10 +36,12 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.configInput.setText(ConfigStore.load(this))
+        binding.configInput.setText(ProfileStore.loadLinks(this))
+        populateSpinner()
 
         binding.saveButton.setOnClickListener {
-            ConfigStore.save(this, binding.configInput.text.toString())
+            ProfileStore.saveLinks(this, binding.configInput.text.toString())
+            populateSpinner()
             toast("Сохранено")
         }
 
@@ -57,6 +60,15 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermission()
     }
 
+    private fun populateSpinner() {
+        val names = ProfileStore.servers(this).map { it.name }
+        val items = listOf(getString(R.string.auto_server)) + names
+        binding.serverSpinner.adapter =
+            ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, items)
+        val saved = ProfileStore.loadSelection(this) + 1   // -1 (Auto) -> 0
+        binding.serverSpinner.setSelection(saved.coerceIn(0, items.size - 1))
+    }
+
     private fun render(stage: VpnState.Stage) {
         binding.status.setText(
             when (stage) {
@@ -68,34 +80,45 @@ class MainActivity : AppCompatActivity() {
         binding.connectButton.setText(
             if (stage == VpnState.Stage.Disconnected) R.string.connect else R.string.disconnect,
         )
+        binding.serverSpinner.isEnabled = stage == VpnState.Stage.Disconnected
     }
 
     private fun connect() {
-        ConfigStore.save(this, binding.configInput.text.toString())
-        val prepare = VpnService.prepare(this)
-        if (prepare != null) {
-            vpnPermission.launch(prepare)
+        val text = binding.configInput.text.toString()
+        ProfileStore.saveLinks(this, text)
+
+        val runtimeConfig: String = if (text.trim().startsWith("{")) {
+            // power-user fallback: raw sing-box JSON
+            text
         } else {
-            startVpn()
+            val servers = ProfileStore.servers(this)
+            if (servers.isEmpty()) {
+                toast(getString(R.string.no_servers))
+                return
+            }
+            val pos = binding.serverSpinner.selectedItemPosition
+            ProfileStore.saveSelection(this, pos - 1)
+            val selected = if (pos <= 0) servers else listOf(servers[(pos - 1).coerceIn(0, servers.size - 1)])
+            try {
+                ConfigBuilder.build(selected)
+            } catch (e: Exception) {
+                toast("Ошибка сборки конфига: ${e.message}")
+                return
+            }
         }
+
+        ConfigStore.save(this, runtimeConfig)
+
+        val prepare = VpnService.prepare(this)
+        if (prepare != null) vpnPermission.launch(prepare) else startVpn()
     }
 
     private fun startVpn() {
-        val intent = Intent(this, QartzVpnService::class.java)
-        ContextCompat.startForegroundService(this, intent)
+        ContextCompat.startForegroundService(this, Intent(this, QartzVpnService::class.java))
     }
 
     private fun stopVpn() {
         startService(Intent(this, QartzVpnService::class.java).setAction(QartzVpnService.ACTION_STOP))
-    }
-
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
     }
 
     private fun showLogs() {
@@ -123,6 +146,15 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Закрыть", null)
             .show()
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()

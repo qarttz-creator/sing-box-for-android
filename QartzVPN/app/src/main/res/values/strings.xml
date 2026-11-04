@@ -2,6 +2,7 @@
     <string name="app_name">QartzVPN</string>
     <string name="config_hint">Вставьте sing-box конфиг (JSON)…</string>
     <string name="save">Сохранить конфиг</string>
+    <string name="logs">Логи</string>
     <string name="connect">Подключить</string>
     <string name="disconnect">Отключить</string>
     <string name="status_disconnected">Отключено</string>

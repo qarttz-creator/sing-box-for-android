@@ -62,6 +62,22 @@ class QartzVpnService :
         const val ACTION_STOP = "vpn.qartz.client.STOP"
         private const val NOTIF_CHANNEL = "qartz-vpn"
         private const val NOTIF_ID = 1
+
+        fun logFile(context: android.content.Context): java.io.File =
+            java.io.File(context.filesDir, "box.log")
+    }
+
+    // Force verbose logging into a file we can show in-app, whatever the pasted config says.
+    private fun instrumentedConfig(raw: String): String = try {
+        val obj = org.json.JSONObject(raw)
+        val log = obj.optJSONObject("log") ?: org.json.JSONObject()
+        log.put("level", "trace")
+        log.put("timestamp", true)
+        log.put("output", logFile(this).absolutePath)
+        obj.put("log", log)
+        obj.toString()
+    } catch (e: Exception) {
+        raw
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -90,10 +106,11 @@ class QartzVpnService :
                     fail("Конфиг пуст — вставьте sing-box конфиг и сохраните")
                     return@launch
                 }
+                runCatching { logFile(this@QartzVpnService).writeText("") }
                 val server = CommandServer(this@QartzVpnService, this@QartzVpnService)
                 server.start()
                 commandServer = server
-                server.startOrReloadService(config, OverrideOptions())
+                server.startOrReloadService(instrumentedConfig(config), OverrideOptions())
                 VpnState.set(VpnState.Stage.Connected, "")
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)

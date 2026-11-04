@@ -1,13 +1,19 @@
 package vpn.qartz.client
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import vpn.qartz.client.databinding.ActivityMainBinding
@@ -42,6 +48,8 @@ class MainActivity : AppCompatActivity() {
                 else -> connect()
             }
         }
+
+        binding.logsButton.setOnClickListener { showLogs() }
 
         VpnState.stage.observe(this) { stage -> render(stage) }
         VpnState.message.observe(this) { msg -> if (!msg.isNullOrBlank()) toast(msg) }
@@ -88,6 +96,33 @@ class MainActivity : AppCompatActivity() {
         ) {
             notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    private fun showLogs() {
+        val file = QartzVpnService.logFile(this)
+        val text = if (file.exists()) file.readText() else ""
+        val shown = when {
+            text.isBlank() -> "(лог пуст — нажми Подключить хотя бы раз)"
+            text.length > 20000 -> text.takeLast(20000)
+            else -> text
+        }
+        val tv = TextView(this).apply {
+            setText(shown)
+            setTextIsSelectable(true)
+            typeface = Typeface.MONOSPACE
+            textSize = 11f
+            setPadding(40, 30, 40, 30)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Логи sing-box")
+            .setView(ScrollView(this).apply { addView(tv) })
+            .setPositiveButton("Копировать") { _, _ ->
+                getSystemService(ClipboardManager::class.java)
+                    .setPrimaryClip(ClipData.newPlainText("qartz-log", text))
+                toast("Скопировано")
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
     }
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()

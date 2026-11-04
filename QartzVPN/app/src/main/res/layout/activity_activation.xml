@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="28dp">
+
+        <ImageView
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_marginBottom="16dp"
+            android:src="@drawable/ic_qartz"
+            android:contentDescription="@string/app_name" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:paddingBottom="6dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="@string/activate_subtitle"
+            android:textColor="#9AA0A6"
+            android:textSize="14sp"
+            android:paddingBottom="28dp" />
+
+        <EditText
+            android:id="@+id/activateInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#1C1830"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:hint="@string/activate_hint"
+            android:inputType="textUri|textNoSuggestions"
+            android:padding="14dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/activateButton"
+            android:layout_width="match_parent"
+            android:layout_height="58dp"
+            android:layout_marginTop="16dp"
+            android:text="@string/activate_button"
+            android:textSize="17sp" />
+
+        <ProgressBar
+            android:id="@+id/activateProgress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:visibility="gone" />
+
+    </LinearLayout>
+</ScrollView>

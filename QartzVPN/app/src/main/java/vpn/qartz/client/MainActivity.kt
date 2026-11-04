@@ -13,6 +13,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
 import android.widget.ArrayAdapter
+import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -36,20 +37,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Not activated yet → send to the activation screen.
+        if (!ProfileStore.hasProfile(this)) {
+            startActivity(Intent(this, ActivationActivity::class.java))
+            finish()
+            return
+        }
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.configInput.setText(ProfileStore.loadLinks(this))
-        binding.subUrl.setText(ProfileStore.subUrl(this))
         populateSpinner()
-
-        binding.subButton.setOnClickListener { refreshFromSub() }
-
-        binding.saveButton.setOnClickListener {
-            ProfileStore.saveLinks(this, binding.configInput.text.toString())
-            populateSpinner()
-            toast("Сохранено")
-        }
 
         binding.connectButton.setOnClickListener {
             when (VpnState.stage.value) {
@@ -62,12 +61,14 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, AppsActivity::class.java))
         }
 
-        binding.logsButton.setOnClickListener { showLogs() }
+        // Hidden maintenance menu — long-press the title. End users never need it.
+        binding.titleText.setOnLongClickListener { showDevMenu(); true }
 
         VpnState.stage.observe(this) { stage -> render(stage) }
         VpnState.message.observe(this) { msg -> if (!msg.isNullOrBlank()) toast(msg) }
 
         requestNotificationPermission()
+        silentSubRefresh()
     }
 
     private fun populateSpinner() {
@@ -101,12 +102,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun connect() {
-        val text = binding.configInput.text.toString()
-        ProfileStore.saveLinks(this, text)
+        val links = ProfileStore.loadLinks(this)
 
-        val runtimeConfig: String = if (text.trim().startsWith("{")) {
-            // power-user fallback: raw sing-box JSON
-            text
+        val runtimeConfig: String = if (links.trim().startsWith("{")) {
+            // power-user fallback: raw sing-box JSON (set via the hidden manual mode)
+            links
         } else {
             val servers = ProfileStore.servers(this)
             if (servers.isEmpty()) {
@@ -138,13 +138,10 @@ class MainActivity : AppCompatActivity() {
         startService(Intent(this, QartzVpnService::class.java).setAction(QartzVpnService.ACTION_STOP))
     }
 
-    private fun refreshFromSub() {
-        val url = binding.subUrl.text.toString().trim()
-        if (url.isBlank()) {
-            toast(getString(R.string.sub_url_hint))
-            return
-        }
-        ProfileStore.saveSubUrl(this, url)
+    /** Pull the latest servers from the saved subscription in the background, silently. */
+    private fun silentSubRefresh() {
+        val url = ProfileStore.subUrl(this).trim()
+        if (url.isBlank()) return
         thread {
             try {
                 val conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -155,17 +152,60 @@ class MainActivity : AppCompatActivity() {
                 val code = conn.responseCode
                 val text = conn.inputStream.bufferedReader().use { it.readText() }
                 conn.disconnect()
-                if (code !in 200..299 || text.isBlank()) throw RuntimeException("HTTP $code")
-                runOnUiThread {
-                    binding.configInput.setText(text)
-                    ProfileStore.saveLinks(this, text)
-                    populateSpinner()
-                    toast(getString(R.string.sub_updated))
+                if (code in 200..299 && text.isNotBlank() && text != ProfileStore.loadLinks(this)) {
+                    runOnUiThread {
+                        ProfileStore.saveLinks(this, text)
+                        if (VpnState.stage.value == VpnState.Stage.Disconnected) populateSpinner()
+                    }
                 }
-            } catch (e: Exception) {
-                runOnUiThread { toast(getString(R.string.sub_error) + ": " + (e.message ?: "")) }
+            } catch (_: Exception) {
+                // offline / DPI — keep the servers we already have
             }
         }
+    }
+
+    // ---------- hidden maintenance menu ----------
+
+    private fun showDevMenu() {
+        val items = arrayOf(
+            getString(R.string.dev_refresh),
+            getString(R.string.dev_change_sub),
+            getString(R.string.dev_logs),
+            getString(R.string.dev_manual),
+        )
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dev_title)
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> { silentSubRefresh(); toast(getString(R.string.dev_refresh_done)) }
+                    1 -> startActivity(Intent(this, ActivationActivity::class.java))
+                    2 -> showLogs()
+                    3 -> showManualConfig()
+                }
+            }
+            .setNegativeButton(R.string.close, null)
+            .show()
+    }
+
+    private fun showManualConfig() {
+        val input = EditText(this).apply {
+            setText(ProfileStore.loadLinks(this@MainActivity))
+            typeface = Typeface.MONOSPACE
+            textSize = 12f
+            setPadding(40, 30, 40, 30)
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            minLines = 8
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dev_manual)
+            .setView(ScrollView(this).apply { addView(input) })
+            .setPositiveButton(R.string.save) { _, _ ->
+                ProfileStore.saveLinks(this, input.text.toString())
+                populateSpinner()
+                toast(getString(R.string.saved))
+            }
+            .setNegativeButton(R.string.close, null)
+            .show()
     }
 
     private fun showLogs() {

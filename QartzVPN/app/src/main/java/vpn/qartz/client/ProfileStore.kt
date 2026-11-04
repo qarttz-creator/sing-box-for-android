@@ -23,6 +23,9 @@ object ProfileStore {
 
     fun loadLinks(c: Context): String = prefs(c).getString(KEY_LINKS, "") ?: ""
 
+    /** True once the client has been activated (has at least one server / raw config saved). */
+    fun hasProfile(c: Context): Boolean = loadLinks(c).isNotBlank()
+
     fun saveLinks(c: Context, text: String) {
         prefs(c).edit().putString(KEY_LINKS, text).apply()
     }

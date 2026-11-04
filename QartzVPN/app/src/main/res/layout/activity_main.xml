@@ -1,21 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="20dp">
 
         <LinearLayout
+            android:id="@+id/titleBar"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingBottom="12dp">
+            android:paddingBottom="8dp">
 
             <ImageView
                 android:layout_width="34dp"
@@ -25,6 +27,7 @@
                 android:contentDescription="@string/app_name" />
 
             <TextView
+                android:id="@+id/titleText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/app_name"
@@ -32,39 +35,26 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
         <TextView
             android:id="@+id/status"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:text="@string/status_disconnected"
-            android:textSize="18sp"
-            android:paddingBottom="12dp" />
-
-        <EditText
-            android:id="@+id/subUrl"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="#1C1830"
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:hint="@string/sub_url_hint"
-            android:inputType="textUri|textNoSuggestions"
-            android:padding="9dp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/subButton"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:layout_marginBottom="14dp"
-            android:text="@string/sub_update" />
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:paddingBottom="28dp" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/server"
+            android:textColor="#9AA0A6"
             android:textSize="13sp" />
 
         <Spinner
@@ -72,59 +62,28 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:layout_marginBottom="14dp" />
+            android:layout_marginBottom="20dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/connectButton"
             android:layout_width="match_parent"
-            android:layout_height="64dp"
+            android:layout_height="68dp"
             android:text="@string/connect"
-            android:textSize="18sp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="@string/links_label"
-            android:textSize="13sp" />
-
-        <EditText
-            android:id="@+id/configInput"
-            android:layout_width="match_parent"
-            android:layout_height="240dp"
-            android:layout_marginTop="4dp"
-            android:background="#1C1830"
-            android:textColor="#FFFFFF"
-            android:fontFamily="monospace"
-            android:gravity="top|start"
-            android:hint="@string/links_hint"
-            android:inputType="textMultiLine|textNoSuggestions"
-            android:padding="10dp"
-            android:scrollbars="vertical"
-            android:textSize="12sp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/saveButton"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="@string/save" />
+            android:textSize="19sp"
+            app:cornerRadius="16dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/appsButton"
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="14dp"
             android:text="@string/apps_button" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/logsButton"
-            style="@style/Widget.Material3.Button.TextButton"
+        <View
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/logs" />
+            android:layout_height="0dp"
+            android:layout_weight="1" />
 
     </LinearLayout>
 </ScrollView>

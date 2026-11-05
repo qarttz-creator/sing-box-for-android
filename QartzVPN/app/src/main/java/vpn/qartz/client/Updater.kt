@@ -48,7 +48,7 @@ object Updater {
         val total = conn.contentLengthLong
         val out = File(ctx.cacheDir, "update.apk")
         conn.inputStream.use { ins ->
-            out.outputStream.use { os ->
+            out.outputStream().use { os ->
                 val buf = ByteArray(64 * 1024)
                 var read = 0L
                 var n: Int

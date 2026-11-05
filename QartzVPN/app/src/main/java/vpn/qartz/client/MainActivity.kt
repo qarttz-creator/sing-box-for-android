@@ -118,7 +118,7 @@ class MainActivity : AppCompatActivity() {
             ProfileStore.saveSelection(this, pos - 1)
             val selected = if (pos <= 0) servers else listOf(servers[(pos - 1).coerceIn(0, servers.size - 1)])
             try {
-                ConfigBuilder.build(selected)
+                ConfigBuilder.build(selected, ProfileStore.allowLan(this))
             } catch (e: Exception) {
                 toast("Ошибка сборки конфига: ${e.message}")
                 return

@@ -20,6 +20,7 @@
     <string name="mode_off">Выключено (весь трафик в туннель)</string>
     <string name="mode_exclude">Выбранные — мимо туннеля (игры и т.п.)</string>
     <string name="mode_include">Только выбранные — в туннель</string>
+    <string name="allow_lan">Разрешить локальную сеть (принтеры, авто, NAS)</string>
     <string name="connect">Подключить</string>
     <string name="disconnect">Отключить</string>
     <string name="status_disconnected">Отключено</string>

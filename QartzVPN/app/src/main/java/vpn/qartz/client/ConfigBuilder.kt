@@ -13,7 +13,13 @@ object ConfigBuilder {
     private const val GROUP = "proxy"
     private const val TEST_URL = "https://www.gstatic.com/generate_204"
 
-    fun build(servers: List<ServerSpec>): String {
+    // Private / link-local / multicast ranges kept OUT of the tunnel when "allow local network" is on,
+    // so LAN devices and discovery (mDNS/SSDP) reach the local Wi-Fi directly instead of the tunnel.
+    private val LAN_RANGES = listOf(
+        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/4",
+    )
+
+    fun build(servers: List<ServerSpec>, allowLan: Boolean = true): String {
         require(servers.isNotEmpty()) { "no servers" }
 
         val outbounds = JSONArray()
@@ -55,6 +61,11 @@ object ConfigBuilder {
             .put("auto_route", true)
             .put("strict_route", true)
             .put("stack", "gvisor")
+        if (allowLan) {
+            val exclude = JSONArray()
+            LAN_RANGES.forEach { exclude.put(it) }
+            tun.put("inet4_route_exclude_address", exclude)
+        }
 
         val route = JSONObject()
             .put(

@@ -18,6 +18,13 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content" />
 
+    <CheckBox
+        android:id="@+id/allowLan"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/allow_lan" />
+
     <TextView
         android:id="@+id/appsHint"
         android:layout_width="match_parent"

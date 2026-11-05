@@ -31,6 +31,7 @@ class AppsActivity : AppCompatActivity() {
             ),
         )
         binding.modeSpinner.setSelection(ProfileStore.routingMode(this).coerceIn(0, 2))
+        binding.allowLan.isChecked = ProfileStore.allowLan(this)
 
         binding.saveApps.setOnClickListener { save() }
 
@@ -77,6 +78,7 @@ class AppsActivity : AppCompatActivity() {
         }
         ProfileStore.saveSelectedApps(this, chosen)
         ProfileStore.saveRoutingMode(this, binding.modeSpinner.selectedItemPosition)
+        ProfileStore.saveAllowLan(this, binding.allowLan.isChecked)
         Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show()
         finish()
     }

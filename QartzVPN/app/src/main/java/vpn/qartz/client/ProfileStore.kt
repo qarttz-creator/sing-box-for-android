@@ -13,6 +13,7 @@ object ProfileStore {
     private const val KEY_SUB_URL = "sub_url"
     private const val KEY_ROUTE_MODE = "route_mode"
     private const val KEY_ROUTE_APPS = "route_apps"
+    private const val KEY_ALLOW_LAN = "allow_lan"
 
     // Per-app routing modes
     const val MODE_OFF = 0          // everything through the tunnel
@@ -46,6 +47,13 @@ object ProfileStore {
 
     fun saveRoutingMode(c: Context, mode: Int) {
         prefs(c).edit().putInt(KEY_ROUTE_MODE, mode).apply()
+    }
+
+    /** Keep local devices (printers, car, NAS, router) reachable while connected. Default on. */
+    fun allowLan(c: Context): Boolean = prefs(c).getBoolean(KEY_ALLOW_LAN, true)
+
+    fun saveAllowLan(c: Context, v: Boolean) {
+        prefs(c).edit().putBoolean(KEY_ALLOW_LAN, v).apply()
     }
 
     fun selectedApps(c: Context): Set<String> =

@@ -64,7 +64,7 @@ object ConfigBuilder {
         if (allowLan) {
             val exclude = JSONArray()
             LAN_RANGES.forEach { exclude.put(it) }
-            tun.put("inet4_route_exclude_address", exclude)
+            tun.put("route_exclude_address", exclude) // sing-box ≥1.10 (combined v4+v6 list)
         }
 
         val route = JSONObject()

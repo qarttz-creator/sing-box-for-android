@@ -65,6 +65,8 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, AppsActivity::class.java))
         }
 
+        binding.updateButton.setOnClickListener { checkForUpdate(manual = true) }
+
         // Hidden maintenance menu — long-press the title. End users never need it.
         binding.titleText.setOnLongClickListener { showDevMenu(); true }
 

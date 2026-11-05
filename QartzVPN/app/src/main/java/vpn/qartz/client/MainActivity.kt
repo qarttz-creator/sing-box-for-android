@@ -15,7 +15,6 @@ import android.widget.ProgressBar
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
-import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
@@ -52,8 +51,6 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         applySystemBarInsets(binding.root)
 
-        populateSpinner()
-
         binding.connectButton.setOnClickListener {
             when (VpnState.stage.value) {
                 VpnState.Stage.Connected, VpnState.Stage.Connecting -> stopVpn()
@@ -78,15 +75,6 @@ class MainActivity : AppCompatActivity() {
         checkForUpdate(manual = false)
     }
 
-    private fun populateSpinner() {
-        val names = ProfileStore.servers(this).map { it.name }
-        val items = listOf(getString(R.string.auto_server)) + names
-        binding.serverSpinner.adapter =
-            ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, items)
-        val saved = ProfileStore.loadSelection(this) + 1   // -1 (Auto) -> 0
-        binding.serverSpinner.setSelection(saved.coerceIn(0, items.size - 1))
-    }
-
     private fun render(stage: VpnState.Stage) {
         binding.status.setText(
             when (stage) {
@@ -105,7 +93,6 @@ class MainActivity : AppCompatActivity() {
         binding.connectButton.setText(
             if (stage == VpnState.Stage.Disconnected) R.string.connect else R.string.disconnect,
         )
-        binding.serverSpinner.isEnabled = stage == VpnState.Stage.Disconnected
     }
 
     private fun connect() {
@@ -120,11 +107,10 @@ class MainActivity : AppCompatActivity() {
                 toast(getString(R.string.no_servers))
                 return
             }
-            val pos = binding.serverSpinner.selectedItemPosition
-            ProfileStore.saveSelection(this, pos - 1)
-            val selected = if (pos <= 0) servers else listOf(servers[(pos - 1).coerceIn(0, servers.size - 1)])
+            // Always auto: all gateways go into the urltest group; the balancer skips any that fail
+            // the probe (e.g. vless on mobile) and picks the best working one by latency.
             try {
-                ConfigBuilder.build(selected, ProfileStore.allowLan(this))
+                ConfigBuilder.build(servers, ProfileStore.allowLan(this))
             } catch (e: Exception) {
                 toast("Ошибка сборки конфига: ${e.message}")
                 return

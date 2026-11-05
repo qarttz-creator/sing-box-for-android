@@ -50,20 +50,6 @@
             android:textStyle="bold"
             android:paddingBottom="28dp" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/server"
-            android:textColor="#9AA0A6"
-            android:textSize="13sp" />
-
-        <Spinner
-            android:id="@+id/serverSpinner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="20dp" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/connectButton"
             android:layout_width="match_parent"

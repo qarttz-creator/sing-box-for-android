@@ -14,6 +14,7 @@ object ProfileStore {
     private const val KEY_ROUTE_MODE = "route_mode"
     private const val KEY_ROUTE_APPS = "route_apps"
     private const val KEY_ALLOW_LAN = "allow_lan"
+    private const val KEY_AUTOSTART = "autostart"
 
     // Per-app routing modes
     const val MODE_OFF = 0          // everything through the tunnel
@@ -54,6 +55,13 @@ object ProfileStore {
 
     fun saveAllowLan(c: Context, v: Boolean) {
         prefs(c).edit().putBoolean(KEY_ALLOW_LAN, v).apply()
+    }
+
+    /** Auto-connect after device boot. Needs VPN permission already granted (one manual connect). */
+    fun autoStart(c: Context): Boolean = prefs(c).getBoolean(KEY_AUTOSTART, false)
+
+    fun saveAutoStart(c: Context, v: Boolean) {
+        prefs(c).edit().putBoolean(KEY_AUTOSTART, v).apply()
     }
 
     fun selectedApps(c: Context): Set<String> =

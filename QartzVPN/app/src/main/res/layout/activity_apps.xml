@@ -32,6 +32,13 @@
         android:layout_marginTop="2dp"
         android:text="@string/auto_start" />
 
+    <CheckBox
+        android:id="@+id/ruDirect"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="@string/ru_direct" />
+
     <TextView
         android:id="@+id/appsHint"
         android:layout_width="match_parent"

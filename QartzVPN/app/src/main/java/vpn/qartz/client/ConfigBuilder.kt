@@ -19,7 +19,11 @@ object ConfigBuilder {
         "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/4",
     )
 
-    fun build(servers: List<ServerSpec>, allowLan: Boolean = true): String {
+    // RU domains go DIRECT (bypass the tunnel) so RU marketplaces/RKN don't see a foreign VPN IP.
+    // .рф is matched by its punycode xn--p1ai.
+    private val RU_SUFFIXES = listOf(".ru", ".su", "xn--p1ai")
+
+    fun build(servers: List<ServerSpec>, allowLan: Boolean = true, ruDirect: Boolean = true): String {
         require(servers.isNotEmpty()) { "no servers" }
 
         val outbounds = JSONArray()
@@ -67,14 +71,18 @@ object ConfigBuilder {
             tun.put("route_exclude_address", exclude) // sing-box ≥1.10 (combined v4+v6 list)
         }
 
+        val rules = JSONArray()
+            .put(JSONObject().put("action", "sniff"))
+            .put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
+        if (ruDirect) {
+            val ru = JSONArray()
+            RU_SUFFIXES.forEach { ru.put(it) }
+            rules.put(JSONObject().put("domain_suffix", ru).put("outbound", "direct"))
+        }
+        rules.put(JSONObject().put("ip_is_private", true).put("outbound", "direct"))
+
         val route = JSONObject()
-            .put(
-                "rules",
-                JSONArray()
-                    .put(JSONObject().put("action", "sniff"))
-                    .put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
-                    .put(JSONObject().put("ip_is_private", true).put("outbound", "direct")),
-            )
+            .put("rules", rules)
             .put("final", GROUP)
             .put("auto_detect_interface", true)
 

@@ -110,7 +110,7 @@ class MainActivity : AppCompatActivity() {
             // Always auto: all gateways go into the urltest group; the balancer skips any that fail
             // the probe (e.g. vless on mobile) and picks the best working one by latency.
             try {
-                ConfigBuilder.build(servers, ProfileStore.allowLan(this))
+                ConfigBuilder.build(servers, ProfileStore.allowLan(this), ProfileStore.ruDirect(this))
             } catch (e: Exception) {
                 toast("Ошибка сборки конфига: ${e.message}")
                 return

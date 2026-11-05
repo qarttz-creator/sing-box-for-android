@@ -15,6 +15,7 @@ object ProfileStore {
     private const val KEY_ROUTE_APPS = "route_apps"
     private const val KEY_ALLOW_LAN = "allow_lan"
     private const val KEY_AUTOSTART = "autostart"
+    private const val KEY_RU_DIRECT = "ru_direct"
 
     // Per-app routing modes
     const val MODE_OFF = 0          // everything through the tunnel
@@ -62,6 +63,13 @@ object ProfileStore {
 
     fun saveAutoStart(c: Context, v: Boolean) {
         prefs(c).edit().putBoolean(KEY_AUTOSTART, v).apply()
+    }
+
+    /** Route RU domains (.ru/.рф/.su) directly, bypassing the VPN. Default on. */
+    fun ruDirect(c: Context): Boolean = prefs(c).getBoolean(KEY_RU_DIRECT, true)
+
+    fun saveRuDirect(c: Context, v: Boolean) {
+        prefs(c).edit().putBoolean(KEY_RU_DIRECT, v).apply()
     }
 
     fun selectedApps(c: Context): Set<String> =

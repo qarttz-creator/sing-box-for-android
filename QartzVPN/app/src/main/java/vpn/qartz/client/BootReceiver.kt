@@ -21,7 +21,7 @@ class BootReceiver : BroadcastReceiver() {
         try {
             val servers = ProfileStore.servers(ctx)
             if (servers.isEmpty()) return
-            val cfg = ConfigBuilder.build(servers, ProfileStore.allowLan(ctx))
+            val cfg = ConfigBuilder.build(servers, ProfileStore.allowLan(ctx), ProfileStore.ruDirect(ctx))
             ConfigStore.save(ctx, cfg)
             ContextCompat.startForegroundService(ctx, Intent(ctx, QartzVpnService::class.java))
         } catch (_: Exception) {

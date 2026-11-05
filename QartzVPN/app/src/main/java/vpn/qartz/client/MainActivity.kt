@@ -146,10 +146,7 @@ class MainActivity : AppCompatActivity() {
                 val text = conn.inputStream.bufferedReader().use { it.readText() }
                 conn.disconnect()
                 if (code in 200..299 && text.isNotBlank() && text != ProfileStore.loadLinks(this)) {
-                    runOnUiThread {
-                        ProfileStore.saveLinks(this, text)
-                        if (VpnState.stage.value == VpnState.Stage.Disconnected) populateSpinner()
-                    }
+                    runOnUiThread { ProfileStore.saveLinks(this, text) }
                 }
             } catch (_: Exception) {
                 // offline / DPI — keep the servers we already have
@@ -275,7 +272,6 @@ class MainActivity : AppCompatActivity() {
             .setView(ScrollView(this).apply { addView(input) })
             .setPositiveButton(R.string.save) { _, _ ->
                 ProfileStore.saveLinks(this, input.text.toString())
-                populateSpinner()
                 toast(getString(R.string.saved))
             }
             .setNegativeButton(R.string.close, null)

@@ -11,15 +11,28 @@ android {
         applicationId = "vpn.qartz.client"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // Overridable from CI: -PqartzVersionCode=<n> -PqartzVersionName=<s>
+        versionCode = (project.findProperty("qartzVersionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("qartzVersionName") as String?) ?: "0.1.0"
+    }
+
+    signingConfigs {
+        create("release") {
+            // Stable key committed to the repo so every build signs identically and updates install
+            // in place (keeping activation). Internal/sideload tool — move to a CI secret before a
+            // real commercial launch.
+            storeFile = file("qartz-release.jks")
+            storePassword = "qartzvpn"
+            keyAlias = "qartz"
+            keyPassword = "qartzvpn"
+        }
     }
 
     buildTypes {
         release {
             // MVP: keep unminified so the first testable build is simple and stack traces are readable.
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

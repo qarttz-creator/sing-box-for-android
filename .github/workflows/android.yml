@@ -75,7 +75,20 @@ jobs:
 
       - name: Build APK
         working-directory: QartzVPN
-        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+        run: |
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace \
+            -PqartzVersionCode=${{ github.run_number }} \
+            -PqartzVersionName=1.0.${{ github.run_number }}
+
+      - name: Write version.json
+        run: |
+          cat > QartzVPN/app/build/outputs/apk/release/version.json <<JSON
+          {
+            "versionCode": ${{ github.run_number }},
+            "versionName": "1.0.${{ github.run_number }}",
+            "url": "https://github.com/qarttz-creator/sing-box-for-android/releases/download/android-latest/app-universal-release.apk"
+          }
+          JSON
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
@@ -94,5 +107,7 @@ jobs:
             - **app-arm64-v8a-release.apk** — для современных телефонов (рекомендуется)
             - app-armeabi-v7a-release.apk — старые 32-битные устройства
             - app-universal-release.apk — универсальный (крупнее), если не уверены
-          files: QartzVPN/app/build/outputs/apk/release/*.apk
+          files: |
+            QartzVPN/app/build/outputs/apk/release/*.apk
+            QartzVPN/app/build/outputs/apk/release/version.json
           fail_on_unmatched_files: true

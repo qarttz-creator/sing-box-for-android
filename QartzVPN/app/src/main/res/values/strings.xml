@@ -45,5 +45,20 @@
     <string name="dev_change_sub">Сменить подписку</string>
     <string name="dev_logs">Логи</string>
     <string name="dev_manual">Ручной режим (конфиг)</string>
+    <string name="dev_update">Проверить обновление</string>
     <string name="close">Закрыть</string>
+
+    <!-- in-app updater -->
+    <string name="upd_check_failed">Не удалось проверить обновление</string>
+    <string name="upd_up_to_date">Установлена последняя версия (%s)</string>
+    <string name="upd_available_title">Доступно обновление</string>
+    <string name="upd_available_msg">Новая версия: %1$s\nТекущая: %2$s\n\nОбновить сейчас?</string>
+    <string name="upd_update">Обновить</string>
+    <string name="upd_later">Позже</string>
+    <string name="upd_perm_title">Нужно разрешение</string>
+    <string name="upd_perm_msg">Разреши установку приложений из этого источника, затем нажми «Обновить» ещё раз.</string>
+    <string name="upd_perm_open">Открыть настройки</string>
+    <string name="upd_downloading">Загрузка обновления…</string>
+    <string name="upd_download_failed">Ошибка загрузки обновления</string>
+    <string name="upd_install_failed">Не удалось запустить установку: %s</string>
 </resources>

@@ -6,9 +6,12 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.widget.ProgressBar
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
@@ -70,6 +73,7 @@ class MainActivity : AppCompatActivity() {
 
         requestNotificationPermission()
         silentSubRefresh()
+        checkForUpdate(manual = false)
     }
 
     private fun populateSpinner() {
@@ -165,10 +169,90 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ---------- in-app update ----------
+
+    private fun checkForUpdate(manual: Boolean) {
+        thread {
+            val r = Updater.fetchLatest()
+            runOnUiThread {
+                when {
+                    r == null -> if (manual) toast(getString(R.string.upd_check_failed))
+                    Updater.isNewer(r) -> promptUpdate(r)
+                    manual -> toast(getString(R.string.upd_up_to_date, BuildConfig.VERSION_NAME))
+                }
+            }
+        }
+    }
+
+    private fun promptUpdate(r: Updater.Remote) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.upd_available_title)
+            .setMessage(getString(R.string.upd_available_msg, r.name, BuildConfig.VERSION_NAME))
+            .setPositiveButton(R.string.upd_update) { _, _ -> startUpdate(r) }
+            .setNegativeButton(R.string.upd_later, null)
+            .show()
+    }
+
+    private fun startUpdate(r: Updater.Remote) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.upd_perm_title)
+                .setMessage(R.string.upd_perm_msg)
+                .setPositiveButton(R.string.upd_perm_open) { _, _ ->
+                    try {
+                        startActivity(
+                            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")),
+                        )
+                    } catch (e: Exception) {
+                        toast(e.message ?: "")
+                    }
+                }
+                .setNegativeButton(R.string.close, null)
+                .show()
+            return
+        }
+
+        val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            isIndeterminate = true
+            setPadding(50, 40, 50, 40)
+        }
+        val dlg = AlertDialog.Builder(this)
+            .setTitle(R.string.upd_downloading)
+            .setView(bar)
+            .setCancelable(false)
+            .create()
+        dlg.show()
+
+        thread {
+            val apk = Updater.download(this, r) { p ->
+                runOnUiThread {
+                    if (p >= 0) {
+                        bar.isIndeterminate = false
+                        bar.progress = p
+                    }
+                }
+            }
+            runOnUiThread {
+                dlg.dismiss()
+                if (apk == null) {
+                    toast(getString(R.string.upd_download_failed))
+                    return@runOnUiThread
+                }
+                try {
+                    startActivity(Updater.installIntent(this, apk))
+                } catch (e: Exception) {
+                    toast(getString(R.string.upd_install_failed, e.message ?: ""))
+                }
+            }
+        }
+    }
+
     // ---------- hidden maintenance menu ----------
 
     private fun showDevMenu() {
         val items = arrayOf(
+            getString(R.string.dev_update),
             getString(R.string.dev_refresh),
             getString(R.string.dev_change_sub),
             getString(R.string.dev_logs),
@@ -178,10 +262,11 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.dev_title)
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> { silentSubRefresh(); toast(getString(R.string.dev_refresh_done)) }
-                    1 -> startActivity(Intent(this, ActivationActivity::class.java))
-                    2 -> showLogs()
-                    3 -> showManualConfig()
+                    0 -> checkForUpdate(manual = true)
+                    1 -> { silentSubRefresh(); toast(getString(R.string.dev_refresh_done)) }
+                    2 -> startActivity(Intent(this, ActivationActivity::class.java))
+                    3 -> showLogs()
+                    4 -> showManualConfig()
                 }
             }
             .setNegativeButton(R.string.close, null)

@@ -94,11 +94,13 @@ jobs:
         run: |
           git clone --branch "$XRAY_REF" --depth 1 https://github.com/XTLS/Xray-core xray-core
           cd xray-core
+          # GOOS=linux static binaries (CGO off) run on Android (Linux kernel) and, unlike
+          # GOOS=android, don't require cgo/NDK for 32-bit arm. `env` so an expanded GOARM= is
+          # parsed as an assignment, not a command.
           build() { # <goarch> <abi> [goarm]
             local out="$GITHUB_WORKSPACE/core-out/xray/$2"
             mkdir -p "$out"
-            # Use `env` so an expanded GOARM=... is parsed as an assignment, not a command.
-            env CGO_ENABLED=0 GOOS=android GOARCH="$1" ${3:+GOARM="$3"} \
+            env CGO_ENABLED=0 GOOS=linux GOARCH="$1" ${3:+GOARM="$3"} \
               go build -trimpath -ldflags "-s -w" -o "$out/libxray.so" ./main
           }
           build arm64 arm64-v8a

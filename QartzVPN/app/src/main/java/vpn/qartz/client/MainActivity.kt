@@ -268,11 +268,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showLogs() {
-        val file = QartzVpnService.logFile(this)
-        val text = if (file.exists()) file.readText() else ""
+        val sb = QartzVpnService.logFile(this).let { if (it.exists()) it.readText() else "" }
+        val xr = XrayProcess.logFile(this).let { if (it.exists()) it.readText() else "" }
+        val text = buildString {
+            if (xr.isNotBlank()) {
+                append("=== xray ===\n").append(xr.takeLast(8000)).append("\n\n")
+            }
+            append("=== sing-box ===\n").append(sb)
+        }
         val shown = when {
-            text.isBlank() -> "(лог пуст — нажми Подключить хотя бы раз)"
-            text.length > 20000 -> text.takeLast(20000)
+            sb.isBlank() && xr.isBlank() -> "(лог пуст — нажми Подключить хотя бы раз)"
+            text.length > 24000 -> text.takeLast(24000)
             else -> text
         }
         val tv = TextView(this).apply {

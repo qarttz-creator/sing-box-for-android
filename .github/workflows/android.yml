@@ -5,6 +5,11 @@ name: android
 
 on:
   workflow_dispatch:
+    inputs:
+      promote:
+        description: "Опубликовать в android-latest (пользователи получат это через авто-обновление). Без галочки сборка уходит в тестовый канал android-dev."
+        type: boolean
+        default: false
   push:
     paths:
       - "QartzVPN/**"
@@ -80,13 +85,32 @@ jobs:
             -PqartzVersionCode=${{ github.run_number }} \
             -PqartzVersionName=1.0.${{ github.run_number }}
 
+      # Gate: only an explicit manual run with promote=true touches the user-facing
+      # android-latest channel (the in-app updater reads that fixed URL). Every other
+      # run (dev pushes, plain dispatch) goes to the android-dev prerelease, which the
+      # updater ignores — so work-in-progress never reaches installed clients.
+      - name: Determine release channel
+        id: chan
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.promote }}" = "true" ]; then
+            echo "tag=android-latest"              >> "$GITHUB_OUTPUT"
+            echo "name=QartzVPN Android (latest)"  >> "$GITHUB_OUTPUT"
+            echo "prerelease=false"                >> "$GITHUB_OUTPUT"
+            echo "::notice::Канал android-latest — уйдёт пользователям."
+          else
+            echo "tag=android-dev"                  >> "$GITHUB_OUTPUT"
+            echo "name=QartzVPN Android (dev/test)" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true"                  >> "$GITHUB_OUTPUT"
+            echo "::notice::Канал android-dev — тестовый, авто-обновление пользователей не трогает."
+          fi
+
       - name: Write version.json
         run: |
           cat > QartzVPN/app/build/outputs/apk/release/version.json <<JSON
           {
             "versionCode": ${{ github.run_number }},
             "versionName": "1.0.${{ github.run_number }}",
-            "url": "https://github.com/qarttz-creator/sing-box-for-android/releases/download/android-latest/app-universal-release.apk"
+            "url": "https://github.com/qarttz-creator/sing-box-for-android/releases/download/${{ steps.chan.outputs.tag }}/app-universal-release.apk"
           }
           JSON
 
@@ -100,10 +124,12 @@ jobs:
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: android-latest
-          name: QartzVPN Android (latest)
+          tag_name: ${{ steps.chan.outputs.tag }}
+          name: ${{ steps.chan.outputs.name }}
+          prerelease: ${{ steps.chan.outputs.prerelease }}
           body: |
-            Автосборка QartzVPN для Android (MVP).
+            Автосборка QartzVPN для Android.
+            Канал: ${{ steps.chan.outputs.tag }}.
             - **app-arm64-v8a-release.apk** — для современных телефонов (рекомендуется)
             - app-armeabi-v7a-release.apk — старые 32-битные устройства
             - app-universal-release.apk — универсальный (крупнее), если не уверены

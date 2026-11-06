@@ -50,13 +50,18 @@
             android:textStyle="bold"
             android:paddingBottom="28dp" />
 
-        <com.google.android.material.button.MaterialButton
+        <ImageView
             android:id="@+id/connectButton"
-            android:layout_width="match_parent"
-            android:layout_height="64dp"
-            android:text="@string/connect"
-            android:textSize="18sp"
-            app:cornerRadius="32dp" />
+            android:layout_width="134dp"
+            android:layout_height="134dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="10dp"
+            android:src="@drawable/power_idle"
+            android:scaleType="fitCenter"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/connect" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/appsButton"

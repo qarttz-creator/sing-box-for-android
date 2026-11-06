@@ -90,8 +90,8 @@ class MainActivity : AppCompatActivity() {
                 else -> 0xFF6D7076.toInt()                       // muted
             },
         )
-        binding.connectButton.setText(
-            if (stage == VpnState.Stage.Disconnected) R.string.connect else R.string.disconnect,
+        binding.connectButton.setImageResource(
+            if (stage == VpnState.Stage.Connected) R.drawable.power_active else R.drawable.power_idle,
         )
     }
 

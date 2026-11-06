@@ -128,20 +128,24 @@ class QartzVpnService :
                 }
                 // Hybrid engine: bring up xray (XHTTP) first so its local SOCKS is ready before
                 // sing-box routes into it.
-                if (XrayConfigStore.exists(this@QartzVpnService)) {
+                val xrayOn = XrayConfigStore.exists(this@QartzVpnService)
+                if (xrayOn) {
                     XrayProcess.start(this@QartzVpnService)
                     delay(500)
                 }
                 runCatching { logFile(this@QartzVpnService).writeText("") }
+                sbLog("[qartz] starting sing-box (xray=$xrayOn, alive=${XrayProcess.isAlive()})")
                 val server = CommandServer(this@QartzVpnService, this@QartzVpnService)
                 server.start()
                 commandServer = server
                 server.startOrReloadService(instrumentedConfig(config), perAppOverride())
+                sbLog("[qartz] sing-box service started")
                 // Tunnel is up; only report "Connected" once traffic actually flows through it.
                 VpnState.set(VpnState.Stage.Connecting, "")
                 startConnectivityMonitor()
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)
+                sbLog("[qartz] start FAILED: ${e.message ?: e}")
                 fail(e.message ?: e.toString())
             }
         }
@@ -151,6 +155,11 @@ class QartzVpnService :
     private fun fail(message: String) {
         VpnState.set(VpnState.Stage.Disconnected, message)
         stopVpn()
+    }
+
+    /** Append a line to the sing-box log file so it shows up in the in-app Logs view. */
+    private fun sbLog(line: String) {
+        runCatching { logFile(this).appendText(line + "\n") }
     }
 
     // Report "Connected" only when a probe actually passes through the tunnel; flip back if it stops.

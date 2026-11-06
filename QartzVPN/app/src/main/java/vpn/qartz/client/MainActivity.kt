@@ -85,9 +85,9 @@ class MainActivity : AppCompatActivity() {
         )
         binding.status.setTextColor(
             when (stage) {
-                VpnState.Stage.Connected -> 0xFF4CAF50.toInt()   // green
-                VpnState.Stage.Connecting -> 0xFFE0A52B.toInt()  // amber
-                else -> 0xFF9AA0A6.toInt()                       // grey
+                VpnState.Stage.Connected -> 0xFF1E6E72.toInt()   // kyanite accent
+                VpnState.Stage.Connecting -> 0xFF9A6B16.toInt()  // warn
+                else -> 0xFF6D7076.toInt()                       // muted
             },
         )
         binding.connectButton.setText(

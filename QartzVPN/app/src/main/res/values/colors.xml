@@ -1,7 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- quartz / sand / time palette -->
-    <color name="qartz_primary">#C9A24B</color>
-    <color name="qartz_on_primary">#1A1206</color>
-    <color name="qartz_bg">#0E0B16</color>
+    <!-- QartzVPN brand: warm-stone neutral + kyanite-teal accent (minimal/clean) -->
+    <color name="qartz_bg">#F1F1ED</color>
+    <color name="qartz_surface">#FFFFFF</color>
+    <color name="qartz_ink">#18191B</color>
+    <color name="qartz_muted">#6D7076</color>
+    <color name="qartz_line">#E3E2DC</color>
+
+    <color name="qartz_accent">#1E6E72</color>
+    <color name="qartz_accent_ink">#0F4B4E</color>
+    <color name="qartz_accent_soft">#E4EFEE</color>
+    <color name="qartz_on_accent">#FFFFFF</color>
+
+    <color name="qartz_ok">#2E7D58</color>
+    <color name="qartz_warn">#9A6B16</color>
+
+    <!-- legacy aliases (kept so older references resolve) -->
+    <color name="qartz_primary">#1E6E72</color>
+    <color name="qartz_on_primary">#FFFFFF</color>
 </resources>

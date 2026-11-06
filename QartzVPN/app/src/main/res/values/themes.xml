@@ -1,7 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <style name="Theme.Qartz" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/qartz_primary</item>
-        <item name="colorOnPrimary">@color/qartz_on_primary</item>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Light-first brand theme. Kept light regardless of system setting so the
+         clean stone/teal identity stays consistent on every device. -->
+    <style name="Theme.Qartz" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/qartz_accent</item>
+        <item name="colorOnPrimary">@color/qartz_on_accent</item>
+        <item name="colorPrimaryContainer">@color/qartz_accent_soft</item>
+        <item name="colorOnPrimaryContainer">@color/qartz_accent_ink</item>
+
+        <item name="android:colorBackground">@color/qartz_bg</item>
+        <item name="colorSurface">@color/qartz_surface</item>
+        <item name="colorSurfaceVariant">@color/qartz_bg</item>
+        <item name="colorOnSurface">@color/qartz_ink</item>
+        <item name="colorOnSurfaceVariant">@color/qartz_muted</item>
+        <item name="colorOutline">@color/qartz_line</item>
+
+        <item name="android:windowBackground">@color/qartz_bg</item>
+        <item name="android:statusBarColor">@color/qartz_bg</item>
+        <item name="android:navigationBarColor">@color/qartz_bg</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
     </style>
 </resources>

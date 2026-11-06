@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true">
@@ -12,10 +13,10 @@
         android:padding="28dp">
 
         <ImageView
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:layout_marginBottom="16dp"
-            android:src="@drawable/ic_qartz"
+            android:layout_width="56dp"
+            android:layout_height="80dp"
+            android:layout_marginBottom="18dp"
+            android:src="@drawable/ic_crystal"
             android:contentDescription="@string/app_name" />
 
         <TextView
@@ -31,7 +32,7 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:text="@string/activate_subtitle"
-            android:textColor="#9AA0A6"
+            android:textColor="@color/qartz_muted"
             android:textSize="14sp"
             android:paddingBottom="28dp" />
 
@@ -39,8 +40,9 @@
             android:id="@+id/activateInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="#1C1830"
-            android:textColor="#FFFFFF"
+            android:background="@drawable/field_bg"
+            android:textColor="@color/qartz_ink"
+            android:textColorHint="@color/qartz_muted"
             android:textSize="13sp"
             android:hint="@string/activate_hint"
             android:inputType="textUri|textNoSuggestions"
@@ -49,10 +51,11 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/activateButton"
             android:layout_width="match_parent"
-            android:layout_height="58dp"
+            android:layout_height="56dp"
             android:layout_marginTop="16dp"
             android:text="@string/activate_button"
-            android:textSize="17sp" />
+            android:textSize="16sp"
+            app:cornerRadius="28dp" />
 
         <ProgressBar
             android:id="@+id/activateProgress"

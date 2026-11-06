@@ -270,7 +270,7 @@ class QartzVpnService :
         val notification = NotificationCompat.Builder(this, NOTIF_CHANNEL)
             .setContentTitle(getString(R.string.notif_title))
             .setContentText(getString(R.string.notif_connected))
-            .setSmallIcon(R.drawable.ic_qartz)
+            .setSmallIcon(R.drawable.ic_crystal)
             .setOngoing(true)
             .setContentIntent(pi)
             .build()

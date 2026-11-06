@@ -1,0 +1,19 @@
+<!-- In-app brand mark: kyanite-teal line crystal on transparent background -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="100dp"
+    android:height="150dp"
+    android:viewportWidth="100"
+    android:viewportHeight="150">
+    <path
+        android:strokeColor="#1E6E72"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M50,6 L20,44 L20,112 L50,144 L80,112 L80,44 Z" />
+    <path
+        android:strokeColor="#1E6E72"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M20,44 L80,44 M50,6 L38,44 M50,6 L62,44 M50,44 L50,144 M20,112 L50,100 L80,112" />
+</vector>

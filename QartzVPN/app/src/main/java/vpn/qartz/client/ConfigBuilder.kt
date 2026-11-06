@@ -72,12 +72,12 @@ object ConfigBuilder {
                 JSONObject().put("type", "https").put("tag", "dns-remote")
                     .put("server", "8.8.8.8").put("detour", GROUP),
             )
-            // DoH over the direct outbound: same form as dns-remote (which starts fine), but it goes
-            // out past the tun. sing-box 1.14 fails to start a `type: udp` DNS here, and DoH on :443
-            // also resists DNS tampering better than plain udp:53.
+            // DoH with NO detour: sing-box dials a detour-less DNS server directly (past the tun via
+            // auto_detect_interface), which is what we want for bootstrap/RU/probe. Detouring to the
+            // plain direct outbound is rejected ("detour to an empty direct outbound makes no sense").
             .put(
                 JSONObject().put("type", "https").put("tag", "dns-direct")
-                    .put("server", "8.8.8.8").put("detour", "direct"),
+                    .put("server", "8.8.8.8"),
             )
 
         val dnsRules = JSONArray()

@@ -72,11 +72,12 @@ object ConfigBuilder {
                 JSONObject().put("type", "https").put("tag", "dns-remote")
                     .put("server", "8.8.8.8").put("detour", GROUP),
             )
+            // DoH over the direct outbound: same form as dns-remote (which starts fine), but it goes
+            // out past the tun. sing-box 1.14 fails to start a `type: udp` DNS here, and DoH on :443
+            // also resists DNS tampering better than plain udp:53.
             .put(
-                JSONObject().put("type", "udp").put("tag", "dns-direct")
-                    .put("server", directDns?.takeIf { it.isNotBlank() } ?: "8.8.8.8")
-                    .put("server_port", 53)
-                    .put("detour", "direct"),
+                JSONObject().put("type", "https").put("tag", "dns-direct")
+                    .put("server", "8.8.8.8").put("detour", "direct"),
             )
 
         val dnsRules = JSONArray()

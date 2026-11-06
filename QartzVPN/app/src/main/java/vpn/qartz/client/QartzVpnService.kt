@@ -126,6 +126,12 @@ class QartzVpnService :
                     fail("Конфиг пуст — вставьте sing-box конфиг и сохраните")
                     return@launch
                 }
+                // Hybrid engine: bring up xray (XHTTP) first so its local SOCKS is ready before
+                // sing-box routes into it.
+                if (XrayConfigStore.exists(this@QartzVpnService)) {
+                    XrayProcess.start(this@QartzVpnService)
+                    delay(500)
+                }
                 runCatching { logFile(this@QartzVpnService).writeText("") }
                 val server = CommandServer(this@QartzVpnService, this@QartzVpnService)
                 server.start()
@@ -222,6 +228,7 @@ class QartzVpnService :
             runCatching { commandServer?.closeService() }
             runCatching { commandServer?.close() }
             commandServer = null
+            runCatching { XrayProcess.stop() }
             runCatching { fileDescriptor?.close() }
             fileDescriptor = null
             VpnState.set(VpnState.Stage.Disconnected, "")
@@ -246,6 +253,7 @@ class QartzVpnService :
     }
 
     override fun onDestroy() {
+        runCatching { XrayProcess.stop() }
         runCatching { fileDescriptor?.close() }
         super.onDestroy()
     }

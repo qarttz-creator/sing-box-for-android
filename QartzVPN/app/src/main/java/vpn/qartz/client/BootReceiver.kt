@@ -18,13 +18,17 @@ class BootReceiver : BroadcastReceiver() {
         if (!ProfileStore.autoStart(ctx) || !ProfileStore.hasProfile(ctx)) return
         if (VpnService.prepare(ctx) != null) return // no VPN permission → cannot auto-start
 
-        try {
-            val servers = ProfileStore.servers(ctx)
-            if (servers.isEmpty()) return
-            val cfg = ConfigBuilder.build(servers, ProfileStore.allowLan(ctx), ProfileStore.ruDirect(ctx))
-            ConfigStore.save(ctx, cfg)
-            ContextCompat.startForegroundService(ctx, Intent(ctx, QartzVpnService::class.java))
-        } catch (_: Exception) {
-        }
+        // Assembly resolves server IPs (hybrid engine) → off the main thread; keep the receiver alive.
+        val pending = goAsync()
+        Thread {
+            try {
+                if (ConfigAssembler.assemble(ctx) is ConfigAssembler.Result.Ok) {
+                    ContextCompat.startForegroundService(ctx, Intent(ctx, QartzVpnService::class.java))
+                }
+            } catch (_: Exception) {
+            } finally {
+                pending.finish()
+            }
+        }.start()
     }
 }

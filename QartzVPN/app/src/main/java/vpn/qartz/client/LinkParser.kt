@@ -1,28 +1,43 @@
 package vpn.qartz.client
 
 import android.net.Uri
+import org.json.JSONArray
 import org.json.JSONObject
 
-/** A parsed server: a display name plus the sing-box outbound object it maps to. */
-data class ServerSpec(val name: String, val tag: String, val outbound: JSONObject)
+/** Which core runs a given server. sing-box handles most transports; xray handles XHTTP. */
+enum class CoreKind { SINGBOX, XRAY }
 
 /**
- * Parses share links (vless://, hysteria2://) into sing-box outbounds, baking in the settings
- * we confirmed work on-device: minimal TLS for hysteria2 (no stray alpn/insecure), reality/utls
- * for vless, obfs salamander when present.
+ * A parsed server.
+ *  - SINGBOX: [outbound] is a ready sing-box outbound object.
+ *  - XRAY:    [xray] is a ready xray outbound object; [host]/[port] are the real endpoint
+ *             (used to pin a direct route so xray's own traffic escapes the sing-box tun).
+ */
+data class ServerSpec(
+    val name: String,
+    val tag: String,
+    val kind: CoreKind,
+    val outbound: JSONObject,
+    val host: String = "",
+    val port: Int = 0,
+    val xray: JSONObject? = null,
+)
+
+/**
+ * Parses share links (vless://, hysteria2://) into servers.
+ * VLESS over XHTTP is routed to the xray core (sing-box can't do XHTTP); everything else
+ * stays on sing-box (reality/vision/tcp, ws, grpc, httpupgrade, hysteria2).
  */
 object LinkParser {
 
-    /** Parse one link into a ServerSpec, or null if it is blank, a comment, or unsupported. */
     fun parse(raw: String, index: Int): ServerSpec? {
         val line = raw.trim()
         if (line.isEmpty() || line.startsWith("#")) return null
-        val tag = "s$index"
         return try {
             val uri = Uri.parse(line)
             when (uri.scheme?.lowercase()) {
-                "vless" -> vless(uri, tag, index)
-                "hysteria2", "hy2" -> hysteria2(uri, tag, index)
+                "vless" -> vless(uri, index)
+                "hysteria2", "hy2" -> hysteria2(uri, index)
                 else -> null
             }
         } catch (e: Exception) {
@@ -35,12 +50,20 @@ object LinkParser {
         return if (frag.isNotEmpty()) frag else "Сервер ${index + 1}"
     }
 
-    private fun vless(uri: Uri, tag: String, index: Int): ServerSpec? {
+    private fun vless(uri: Uri, index: Int): ServerSpec? {
         val uuid = uri.userInfo ?: return null
         val host = uri.host ?: return null
         val port = if (uri.port > 0) uri.port else 443
         fun q(k: String) = uri.getQueryParameter(k)
+        val network = (q("type") ?: "tcp").lowercase()
 
+        // XHTTP -> xray core.
+        if (network == "xhttp" || network == "splithttp") {
+            return vlessXray(uri, uuid, host, port, index)
+        }
+
+        // Everything else -> sing-box native outbound.
+        val tag = "s$index"
         val out = JSONObject()
             .put("type", "vless")
             .put("tag", tag)
@@ -71,7 +94,7 @@ object LinkParser {
             out.put("tls", tls)
         }
 
-        when (q("type")?.lowercase() ?: "tcp") {
+        when (network) {
             "grpc" -> out.put(
                 "transport",
                 JSONObject().put("type", "grpc")
@@ -91,14 +114,69 @@ object LinkParser {
             }
             // "tcp" (raw) and anything else -> no transport block
         }
-        return ServerSpec(name(uri, index), tag, out)
+        return ServerSpec(name(uri, index), tag, CoreKind.SINGBOX, out)
     }
 
-    private fun hysteria2(uri: Uri, tag: String, index: Int): ServerSpec? {
+    /** VLESS + XHTTP (+ reality/tls) as an xray outbound object. */
+    private fun vlessXray(uri: Uri, uuid: String, host: String, port: Int, index: Int): ServerSpec {
+        fun q(k: String) = uri.getQueryParameter(k)
+        val tag = "x$index"
+
+        val user = JSONObject().put("id", uuid).put("encryption", "none")
+        q("flow")?.takeIf { it.isNotEmpty() }?.let { user.put("flow", it) }
+
+        val stream = JSONObject().put("network", "xhttp")
+        val security = q("security")?.lowercase() ?: "none"
+        stream.put("security", if (security == "reality") "reality" else if (security == "tls") "tls" else "none")
+        val sni = q("sni")?.takeIf { it.isNotEmpty() }
+        val fp = q("fp")?.takeIf { it.isNotEmpty() } ?: "chrome"
+        if (security == "reality") {
+            val r = JSONObject()
+                .put("publicKey", q("pbk").orEmpty())
+                .put("shortId", q("sid").orEmpty())
+                .put("fingerprint", fp)
+                .put("spiderX", q("spx") ?: "/")
+            if (sni != null) r.put("serverName", sni)
+            stream.put("realitySettings", r)
+        } else if (security == "tls") {
+            val t = JSONObject().put("fingerprint", fp)
+            if (sni != null) t.put("serverName", sni)
+            if (q("allowInsecure") == "1" || q("insecure") == "1") t.put("allowInsecure", true)
+            stream.put("tlsSettings", t)
+        }
+
+        val xh = JSONObject()
+            .put("path", q("path")?.takeIf { it.isNotEmpty() } ?: "/")
+            .put("mode", q("mode")?.takeIf { it.isNotEmpty() } ?: "auto")
+        q("host")?.takeIf { it.isNotEmpty() }?.let { xh.put("host", it) }
+        stream.put("xhttpSettings", xh)
+
+        val outbound = JSONObject()
+            .put("tag", tag)
+            .put("protocol", "vless")
+            .put(
+                "settings",
+                JSONObject().put(
+                    "vnext",
+                    JSONArray().put(
+                        JSONObject()
+                            .put("address", host) // XrayConfig pins this to a resolved IP
+                            .put("port", port)
+                            .put("users", JSONArray().put(user)),
+                    ),
+                ),
+            )
+            .put("streamSettings", stream)
+
+        return ServerSpec(name(uri, index), tag, CoreKind.XRAY, JSONObject(), host, port, outbound)
+    }
+
+    private fun hysteria2(uri: Uri, index: Int): ServerSpec? {
         val password = uri.userInfo ?: return null
         val host = uri.host ?: return null
         val port = if (uri.port > 0) uri.port else 443
         fun q(k: String) = uri.getQueryParameter(k)
+        val tag = "s$index"
 
         val out = JSONObject()
             .put("type", "hysteria2")
@@ -114,12 +192,11 @@ object LinkParser {
             )
         }
 
-        // Minimal TLS: adding stray alpn/insecure here broke the QUIC handshake on-device.
         val tls = JSONObject().put("enabled", true)
         q("sni")?.takeIf { it.isNotEmpty() }?.let { tls.put("server_name", it) }
         if (q("insecure") == "1" || q("allowInsecure") == "1") tls.put("insecure", true)
         out.put("tls", tls)
 
-        return ServerSpec(name(uri, index), tag, out)
+        return ServerSpec(name(uri, index), tag, CoreKind.SINGBOX, out)
     }
 }

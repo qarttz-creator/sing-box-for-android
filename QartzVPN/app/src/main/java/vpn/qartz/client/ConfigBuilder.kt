@@ -4,51 +4,65 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Builds a complete sing-box config from parsed servers, baking in the exact environment that
- * worked on-device: TCP remote DNS via proxy, ipv4_only, gvisor tun, sniff + hijack-dns, and a
- * urltest group so several gateways auto-failover (client-side balancer).
+ * Builds a complete sing-box config from parsed servers. In the hybrid engine the XHTTP servers are
+ * served by a local xray process; here they appear as a single "socks" member of the urltest group,
+ * and the xray server IPs are routed DIRECT so xray's own traffic escapes the tun (same as desktop).
  */
 object ConfigBuilder {
 
     private const val GROUP = "proxy"
     private const val TEST_URL = "https://www.gstatic.com/generate_204"
 
-    // Private / link-local / multicast ranges kept OUT of the tunnel when "allow local network" is on,
-    // so LAN devices and discovery (mDNS/SSDP) reach the local Wi-Fi directly instead of the tunnel.
     private val LAN_RANGES = listOf(
         "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/4",
     )
 
-    // RU domains go DIRECT (bypass the tunnel) so RU marketplaces/RKN don't see a foreign VPN IP.
-    // .рф is matched by its punycode xn--p1ai.
     private val RU_SUFFIXES = listOf(".ru", ".su", "xn--p1ai")
 
-    fun build(servers: List<ServerSpec>, allowLan: Boolean = true, ruDirect: Boolean = true): String {
-        require(servers.isNotEmpty()) { "no servers" }
+    fun build(
+        sbServers: List<ServerSpec>,
+        xrayPresent: Boolean = false,
+        socksPort: Int = XrayConfig.SOCKS_PORT,
+        directIps: List<String> = emptyList(),
+        allowLan: Boolean = true,
+        ruDirect: Boolean = true,
+    ): String {
+        require(sbServers.isNotEmpty() || xrayPresent) { "no servers" }
 
         val outbounds = JSONArray()
         val groupMembers = JSONArray()
-        for (s in servers) {
+        for (s in sbServers) {
             outbounds.put(s.outbound)
             groupMembers.put(s.tag)
         }
-        // urltest = client-side balancer / auto-failover across the given servers
+        // xray (XHTTP) appears as one socks member pointing at the local xray process.
+        if (xrayPresent) {
+            outbounds.put(
+                JSONObject()
+                    .put("type", "socks")
+                    .put("tag", "xray")
+                    .put("server", "127.0.0.1")
+                    .put("server_port", socksPort)
+                    .put("version", "5"),
+            )
+            groupMembers.put("xray")
+        }
+
+        // urltest = client-side balancer / auto-failover across the given members.
         outbounds.put(
             JSONObject()
                 .put("type", "urltest")
                 .put("tag", GROUP)
                 .put("outbounds", groupMembers)
                 .put("url", TEST_URL)
-                .put("interval", "30s")                     // fast health re-check for quick failover
+                .put("interval", "30s")
                 .put("tolerance", 100)
                 .put("idle_timeout", "5m")
-                .put("interrupt_exist_connections", true),  // drop dead-gateway conns on switch
+                .put("interrupt_exist_connections", true),
         )
         outbounds.put(JSONObject().put("type", "direct").put("tag", "direct"))
 
-        // DNS: remote = DoH over the proxy (rides the working :443 path, no poisoning for blocked names);
-        // direct = system resolver, used to bootstrap WITHOUT the tunnel. This breaks the urltest<->DNS
-        // deadlock that stranded the client when the preferred (hysteria2) node was blocked.
+        // DNS: remote = DoH over the proxy; direct = system resolver for bootstrap, RU and the probe.
         val dnsServers = JSONArray()
             .put(
                 JSONObject().put("type", "https").put("tag", "dns-remote")
@@ -57,7 +71,6 @@ object ConfigBuilder {
             .put(JSONObject().put("type", "local").put("tag", "dns-direct"))
 
         val dnsRules = JSONArray()
-            // The health-check host MUST resolve directly, or a probe can never run before a node is up.
             .put(
                 JSONObject().put("domain", JSONArray().put("www.gstatic.com"))
                     .put("server", "dns-direct"),
@@ -86,12 +99,18 @@ object ConfigBuilder {
         if (allowLan) {
             val exclude = JSONArray()
             LAN_RANGES.forEach { exclude.put(it) }
-            tun.put("route_exclude_address", exclude) // sing-box ≥1.10 (combined v4+v6 list)
+            tun.put("route_exclude_address", exclude)
         }
 
         val rules = JSONArray()
             .put(JSONObject().put("action", "sniff"))
             .put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
+        // xray's own traffic to the XHTTP server(s) must bypass the tun, or it loops.
+        if (directIps.isNotEmpty()) {
+            val cidrs = JSONArray()
+            directIps.forEach { cidrs.put(if (it.contains(":")) "$it/128" else "$it/32") }
+            rules.put(JSONObject().put("ip_cidr", cidrs).put("outbound", "direct"))
+        }
         if (ruDirect) {
             val ru = JSONArray()
             RU_SUFFIXES.forEach { ru.put(it) }
@@ -103,7 +122,6 @@ object ConfigBuilder {
             .put("rules", rules)
             .put("final", GROUP)
             .put("auto_detect_interface", true)
-            // Resolve proxy server hostnames directly, so a node can come up before DNS-through-proxy exists.
             .put("default_domain_resolver", JSONObject().put("server", "dns-direct"))
 
         return JSONObject()

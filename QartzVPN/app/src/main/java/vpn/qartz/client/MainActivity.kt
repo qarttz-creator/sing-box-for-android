@@ -96,31 +96,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun connect() {
-        val links = ProfileStore.loadLinks(this)
-
-        val runtimeConfig: String = if (links.trim().startsWith("{")) {
-            // power-user fallback: raw sing-box JSON (set via the hidden manual mode)
-            links
-        } else {
-            val servers = ProfileStore.servers(this)
-            if (servers.isEmpty()) {
-                toast(getString(R.string.no_servers))
-                return
-            }
-            // Always auto: all gateways go into the urltest group; the balancer skips any that fail
-            // the probe (e.g. vless on mobile) and picks the best working one by latency.
-            try {
-                ConfigBuilder.build(servers, ProfileStore.allowLan(this), ProfileStore.ruDirect(this))
-            } catch (e: Exception) {
-                toast("Ошибка сборки конфига: ${e.message}")
-                return
+        // Config assembly resolves server IPs (for the hybrid engine), so do it off the main thread.
+        thread {
+            val res = ConfigAssembler.assemble(this)
+            runOnUiThread {
+                when (res) {
+                    is ConfigAssembler.Result.NoServers -> toast(getString(R.string.no_servers))
+                    is ConfigAssembler.Result.Error -> toast("Ошибка сборки конфига: ${res.message}")
+                    is ConfigAssembler.Result.Ok -> {
+                        val prepare = VpnService.prepare(this)
+                        if (prepare != null) vpnPermission.launch(prepare) else startVpn()
+                    }
+                }
             }
         }
-
-        ConfigStore.save(this, runtimeConfig)
-
-        val prepare = VpnService.prepare(this)
-        if (prepare != null) vpnPermission.launch(prepare) else startVpn()
     }
 
     private fun startVpn() {

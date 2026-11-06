@@ -1,6 +1,8 @@
 package vpn.qartz.client
 
 import android.content.Context
+import android.net.ConnectivityManager
+import java.net.Inet4Address
 
 /**
  * Turns the saved links into the runtime configs: a sing-box config (always) and, when any XHTTP
@@ -47,11 +49,25 @@ object ConfigAssembler {
                 directIps = directIps,
                 allowLan = ProfileStore.allowLan(ctx),
                 ruDirect = ProfileStore.ruDirect(ctx),
+                directDns = deviceDns(ctx),
             )
             ConfigStore.save(ctx, sbCfg)
             Result.Ok
         } catch (e: Exception) {
             Result.Error(e.message ?: e.toString())
         }
+    }
+
+    /** The underlying network's DNS resolver (preferring IPv4), used for direct/bootstrap lookups. */
+    private fun deviceDns(ctx: Context): String? = try {
+        val cm = ctx.getSystemService(ConnectivityManager::class.java)
+        val net = cm?.activeNetwork
+        val lp = net?.let { cm.getLinkProperties(it) }
+        val servers = lp?.dnsServers.orEmpty()
+        (servers.firstOrNull { it is Inet4Address } ?: servers.firstOrNull())
+            ?.hostAddress
+            ?.substringBefore('%') // drop any IPv6 scope id
+    } catch (e: Exception) {
+        null
     }
 }

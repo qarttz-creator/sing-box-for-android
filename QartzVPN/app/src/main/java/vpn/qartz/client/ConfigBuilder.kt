@@ -26,6 +26,7 @@ object ConfigBuilder {
         directIps: List<String> = emptyList(),
         allowLan: Boolean = true,
         ruDirect: Boolean = true,
+        directDns: String? = null,
     ): String {
         require(sbServers.isNotEmpty() || xrayPresent) { "no servers" }
 
@@ -62,13 +63,19 @@ object ConfigBuilder {
         )
         outbounds.put(JSONObject().put("type", "direct").put("tag", "direct"))
 
-        // DNS: remote = DoH over the proxy; direct = system resolver for bootstrap, RU and the probe.
+        // DNS: remote = DoH over the proxy; direct = the device's own resolver (via the direct
+        // outbound) for bootstrap, RU and the health-check host. NOTE: sing-box `type: local` is
+        // unusable on Android here — it hits ::1:53 (connection refused) — so we use the real
+        // network DNS passed in, falling back to a public resolver.
         val dnsServers = JSONArray()
             .put(
                 JSONObject().put("type", "https").put("tag", "dns-remote")
                     .put("server", "8.8.8.8").put("detour", GROUP),
             )
-            .put(JSONObject().put("type", "local").put("tag", "dns-direct"))
+            .put(
+                JSONObject().put("type", "udp").put("tag", "dns-direct")
+                    .put("server", directDns ?: "8.8.8.8").put("detour", "direct"),
+            )
 
         val dnsRules = JSONArray()
             .put(

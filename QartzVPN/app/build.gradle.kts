@@ -63,6 +63,9 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // libxray.so is an executable we exec at runtime (not a JNI library) — keep AGP from
+            // stripping/altering it so the Go binary stays runnable from nativeLibraryDir.
+            keepDebugSymbols.add("**/libxray.so")
         }
     }
 }

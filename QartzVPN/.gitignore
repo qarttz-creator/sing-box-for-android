@@ -7,3 +7,6 @@ local.properties
 *.iml
 captures/
 .cxx/
+
+# CI-built native binaries (xray) — not committed
+app/src/main/jniLibs/

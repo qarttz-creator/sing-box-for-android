@@ -17,6 +17,7 @@ on:
 
 env:
   SINGBOX_REF: v1.14.4
+  XRAY_REF: v1.250911.0
   GO_VERSION: "1.25.5"
   NDK_VERSION: "28.0.13004108"
 
@@ -77,6 +78,40 @@ jobs:
           mkdir -p QartzVPN/app/libs
           cp core-out/libbox.aar QartzVPN/app/libs/libbox.aar
           ls -lh QartzVPN/app/libs/
+
+      # Hybrid engine: xray-core handles XHTTP (which sing-box can't). It ships as a standalone
+      # executable (plain `go build`, CGO off) and is run as a child process at runtime, exactly
+      # like the desktop client runs xray.exe. Named libxray.so so Android extracts it executable.
+      - name: Cache xray binaries
+        id: xray-cache
+        uses: actions/cache@v4
+        with:
+          path: core-out/xray
+          key: xray-${{ env.XRAY_REF }}-go${{ env.GO_VERSION }}-v1
+
+      - name: Build xray-core (cache miss)
+        if: steps.xray-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --branch "$XRAY_REF" --depth 1 https://github.com/XTLS/Xray-core xray-core
+          cd xray-core
+          build() { # <goarch> <abi> [goarm]
+            local out="$GITHUB_WORKSPACE/core-out/xray/$2"
+            mkdir -p "$out"
+            CGO_ENABLED=0 GOOS=android GOARCH="$1" ${3:+GOARM=$3} \
+              go build -trimpath -ldflags "-s -w" -o "$out/libxray.so" ./main
+          }
+          build arm64 arm64-v8a
+          build arm   armeabi-v7a 7
+          build amd64 x86_64
+          ls -lhR "$GITHUB_WORKSPACE/core-out/xray"
+
+      - name: Place xray into app
+        run: |
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            mkdir -p "QartzVPN/app/src/main/jniLibs/$abi"
+            cp "core-out/xray/$abi/libxray.so" "QartzVPN/app/src/main/jniLibs/$abi/libxray.so"
+          done
+          ls -lhR QartzVPN/app/src/main/jniLibs/
 
       - name: Build APK
         working-directory: QartzVPN

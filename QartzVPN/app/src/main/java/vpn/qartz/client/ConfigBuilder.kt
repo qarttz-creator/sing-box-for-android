@@ -46,14 +46,32 @@ object ConfigBuilder {
         )
         outbounds.put(JSONObject().put("type", "direct").put("tag", "direct"))
 
-        val dns = JSONObject()
+        // DNS: remote = DoH over the proxy (rides the working :443 path, no poisoning for blocked names);
+        // direct = system resolver, used to bootstrap WITHOUT the tunnel. This breaks the urltest<->DNS
+        // deadlock that stranded the client when the preferred (hysteria2) node was blocked.
+        val dnsServers = JSONArray()
             .put(
-                "servers",
-                JSONArray().put(
-                    JSONObject().put("type", "tcp").put("tag", "dns-remote")
-                        .put("server", "8.8.8.8").put("detour", GROUP),
-                ),
+                JSONObject().put("type", "https").put("tag", "dns-remote")
+                    .put("server", "8.8.8.8").put("detour", GROUP),
             )
+            .put(JSONObject().put("type", "local").put("tag", "dns-direct"))
+
+        val dnsRules = JSONArray()
+            // The health-check host MUST resolve directly, or a probe can never run before a node is up.
+            .put(
+                JSONObject().put("domain", JSONArray().put("www.gstatic.com"))
+                    .put("server", "dns-direct"),
+            )
+        if (ruDirect) {
+            val ruDns = JSONArray()
+            RU_SUFFIXES.forEach { ruDns.put(it) }
+            dnsRules.put(JSONObject().put("domain_suffix", ruDns).put("server", "dns-direct"))
+        }
+
+        val dns = JSONObject()
+            .put("servers", dnsServers)
+            .put("rules", dnsRules)
+            .put("final", "dns-remote")
             .put("strategy", "ipv4_only")
             .put("independent_cache", true)
 
@@ -85,6 +103,8 @@ object ConfigBuilder {
             .put("rules", rules)
             .put("final", GROUP)
             .put("auto_detect_interface", true)
+            // Resolve proxy server hostnames directly, so a node can come up before DNS-through-proxy exists.
+            .put("default_domain_resolver", JSONObject().put("server", "dns-direct"))
 
         return JSONObject()
             .put("log", JSONObject().put("level", "warn"))

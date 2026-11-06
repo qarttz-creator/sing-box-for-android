@@ -4,7 +4,9 @@ import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Which core runs a given server. sing-box handles most transports; xray handles XHTTP. */
+/** Which core runs a given server. xray handles all VLESS (reality/grpc/xhttp/ws/vision) — it is
+ *  proven to connect to these gateways where sing-box does not; sing-box handles hysteria2
+ *  (which xray can't). */
 enum class CoreKind { SINGBOX, XRAY }
 
 /**
@@ -24,9 +26,8 @@ data class ServerSpec(
 )
 
 /**
- * Parses share links (vless://, hysteria2://) into servers.
- * VLESS over XHTTP is routed to the xray core (sing-box can't do XHTTP); everything else
- * stays on sing-box (reality/vision/tcp, ws, grpc, httpupgrade, hysteria2).
+ * Parses share links. VLESS → xray core (the gateways' vless+reality connects via xray but not via
+ * sing-box, whatever the exact cause); hysteria2 → sing-box core.
  */
 object LinkParser {
 
@@ -50,84 +51,23 @@ object LinkParser {
         return if (frag.isNotEmpty()) frag else "Сервер ${index + 1}"
     }
 
+    /** VLESS (any transport/security) → an xray outbound object. */
     private fun vless(uri: Uri, index: Int): ServerSpec? {
         val uuid = uri.userInfo ?: return null
         val host = uri.host ?: return null
         val port = if (uri.port > 0) uri.port else 443
-        fun q(k: String) = uri.getQueryParameter(k)
-        val network = (q("type") ?: "tcp").lowercase()
-
-        // XHTTP -> xray core.
-        if (network == "xhttp" || network == "splithttp") {
-            return vlessXray(uri, uuid, host, port, index)
-        }
-
-        // Everything else -> sing-box native outbound.
-        val tag = "s$index"
-        val out = JSONObject()
-            .put("type", "vless")
-            .put("tag", tag)
-            .put("server", host)
-            .put("server_port", port)
-            .put("uuid", uuid)
-
-        val flow = q("flow").orEmpty()
-        if (flow.isNotEmpty()) out.put("flow", flow)
-
-        val security = q("security")?.lowercase()
-        if (security == "reality" || security == "tls") {
-            val tls = JSONObject().put("enabled", true)
-            q("sni")?.takeIf { it.isNotEmpty() }?.let { tls.put("server_name", it) }
-            tls.put(
-                "utls",
-                JSONObject().put("enabled", true).put("fingerprint", q("fp")?.takeIf { it.isNotEmpty() } ?: "chrome"),
-            )
-            if (security == "reality") {
-                tls.put(
-                    "reality",
-                    JSONObject()
-                        .put("enabled", true)
-                        .put("public_key", q("pbk").orEmpty())
-                        .put("short_id", q("sid").orEmpty()),
-                )
-            }
-            out.put("tls", tls)
-        }
-
-        when (network) {
-            "grpc" -> out.put(
-                "transport",
-                JSONObject().put("type", "grpc")
-                    .put("service_name", q("serviceName") ?: q("servicename") ?: ""),
-            )
-            "ws" -> {
-                val tr = JSONObject().put("type", "ws")
-                q("path")?.let { tr.put("path", it) }
-                q("host")?.takeIf { it.isNotEmpty() }?.let { tr.put("headers", JSONObject().put("Host", it)) }
-                out.put("transport", tr)
-            }
-            "httpupgrade" -> {
-                val tr = JSONObject().put("type", "httpupgrade")
-                q("path")?.let { tr.put("path", it) }
-                q("host")?.takeIf { it.isNotEmpty() }?.let { tr.put("host", it) }
-                out.put("transport", tr)
-            }
-            // "tcp" (raw) and anything else -> no transport block
-        }
-        return ServerSpec(name(uri, index), tag, CoreKind.SINGBOX, out)
-    }
-
-    /** VLESS + XHTTP (+ reality/tls) as an xray outbound object. */
-    private fun vlessXray(uri: Uri, uuid: String, host: String, port: Int, index: Int): ServerSpec {
         fun q(k: String) = uri.getQueryParameter(k)
         val tag = "x$index"
 
         val user = JSONObject().put("id", uuid).put("encryption", "none")
         q("flow")?.takeIf { it.isNotEmpty() }?.let { user.put("flow", it) }
 
-        val stream = JSONObject().put("network", "xhttp")
+        val network = (q("type") ?: "tcp").lowercase().let { if (it == "splithttp") "xhttp" else it }
+        val stream = JSONObject().put("network", network)
+
+        // security
         val security = q("security")?.lowercase() ?: "none"
-        stream.put("security", if (security == "reality") "reality" else if (security == "tls") "tls" else "none")
+        stream.put("security", if (security == "reality" || security == "tls") security else "none")
         val sni = q("sni")?.takeIf { it.isNotEmpty() }
         val fp = q("fp")?.takeIf { it.isNotEmpty() } ?: "chrome"
         if (security == "reality") {
@@ -141,15 +81,39 @@ object LinkParser {
         } else if (security == "tls") {
             val t = JSONObject().put("fingerprint", fp)
             if (sni != null) t.put("serverName", sni)
+            q("alpn")?.takeIf { it.isNotEmpty() }
+                ?.let { t.put("alpn", JSONArray(it.split(",").map { a -> a.trim() })) }
             if (q("allowInsecure") == "1" || q("insecure") == "1") t.put("allowInsecure", true)
             stream.put("tlsSettings", t)
         }
 
-        val xh = JSONObject()
-            .put("path", q("path")?.takeIf { it.isNotEmpty() } ?: "/")
-            .put("mode", q("mode")?.takeIf { it.isNotEmpty() } ?: "auto")
-        q("host")?.takeIf { it.isNotEmpty() }?.let { xh.put("host", it) }
-        stream.put("xhttpSettings", xh)
+        // transport
+        when (network) {
+            "grpc" -> {
+                val g = JSONObject().put("serviceName", q("serviceName") ?: q("servicename") ?: "")
+                if ((q("mode") ?: "").equals("multi", true)) g.put("multiMode", true)
+                q("authority")?.takeIf { it.isNotEmpty() }?.let { g.put("authority", it) }
+                stream.put("grpcSettings", g)
+            }
+            "ws" -> {
+                val w = JSONObject().put("path", q("path")?.takeIf { it.isNotEmpty() } ?: "/")
+                q("host")?.takeIf { it.isNotEmpty() }?.let { w.put("headers", JSONObject().put("Host", it)) }
+                stream.put("wsSettings", w)
+            }
+            "httpupgrade" -> {
+                val h = JSONObject().put("path", q("path")?.takeIf { it.isNotEmpty() } ?: "/")
+                q("host")?.takeIf { it.isNotEmpty() }?.let { h.put("host", it) }
+                stream.put("httpupgradeSettings", h)
+            }
+            "xhttp" -> {
+                val x = JSONObject()
+                    .put("path", q("path")?.takeIf { it.isNotEmpty() } ?: "/")
+                    .put("mode", q("mode")?.takeIf { it.isNotEmpty() } ?: "auto")
+                q("host")?.takeIf { it.isNotEmpty() }?.let { x.put("host", it) }
+                stream.put("xhttpSettings", x)
+            }
+            // "tcp" and anything else: no transport settings
+        }
 
         val outbound = JSONObject()
             .put("tag", tag)

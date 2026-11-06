@@ -21,14 +21,12 @@ object ConfigBuilder {
 
     fun build(
         sbServers: List<ServerSpec>,
-        xrayPresent: Boolean = false,
-        socksPort: Int = XrayConfig.SOCKS_PORT,
+        xrayMembers: List<XrayConfig.Member> = emptyList(),
         directIps: List<String> = emptyList(),
         allowLan: Boolean = true,
         ruDirect: Boolean = true,
-        directDns: String? = null,
     ): String {
-        require(sbServers.isNotEmpty() || xrayPresent) { "no servers" }
+        require(sbServers.isNotEmpty() || xrayMembers.isNotEmpty()) { "no servers" }
 
         val outbounds = JSONArray()
         val groupMembers = JSONArray()
@@ -36,17 +34,17 @@ object ConfigBuilder {
             outbounds.put(s.outbound)
             groupMembers.put(s.tag)
         }
-        // xray (XHTTP) appears as one socks member pointing at the local xray process.
-        if (xrayPresent) {
+        // Each VLESS gateway appears as its own socks member → the local xray inbound for that gateway.
+        for (m in xrayMembers) {
             outbounds.put(
                 JSONObject()
                     .put("type", "socks")
-                    .put("tag", "xray")
+                    .put("tag", m.tag)
                     .put("server", "127.0.0.1")
-                    .put("server_port", socksPort)
+                    .put("server_port", m.port)
                     .put("version", "5"),
             )
-            groupMembers.put("xray")
+            groupMembers.put(m.tag)
         }
 
         // urltest = client-side balancer / auto-failover across the given members.

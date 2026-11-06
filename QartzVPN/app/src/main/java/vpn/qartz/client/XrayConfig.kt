@@ -5,19 +5,21 @@ import org.json.JSONObject
 import java.net.InetAddress
 
 /**
- * Builds an xray-core config for the XHTTP servers. xray runs as a child process exposing a local
- * SOCKS inbound; sing-box routes its final outbound into that SOCKS (hybrid engine, same shape as
- * the desktop client). Each server's real IP is pinned (resolved here) and returned so sing-box can
- * route that IP DIRECT — otherwise xray's own traffic to the server would loop back into the tun.
+ * Builds an xray-core config for the VLESS servers. xray runs as a child process and exposes ONE
+ * local SOCKS inbound per gateway (routed to that gateway's outbound). sing-box then has one urltest
+ * member per gateway, so the active gateway selection is made — and readable — in sing-box.
+ * Each gateway IP is pinned (resolved here) and returned so sing-box routes it DIRECT (xray's own
+ * traffic to the gateway must bypass the tun).
  */
 object XrayConfig {
 
-    const val SOCKS_PORT = 24808
-    private const val PROBE_URL = "https://www.gstatic.com/generate_204"
+    const val SOCKS_PORT_BASE = 24808
 
-    data class Result(val json: String, val directIps: List<String>)
+    /** A sing-box-facing member: the urltest tag, the human gateway name, and the local socks port. */
+    data class Member(val tag: String, val name: String, val port: Int)
 
-    /** Resolve a host to a literal IP; returns the input unchanged if it already is one / on failure. */
+    data class Result(val json: String, val directIps: List<String>, val members: List<Member>)
+
     private fun resolve(host: String): String? = try {
         if (host.isEmpty()) null else InetAddress.getByName(host).hostAddress
     } catch (e: Exception) {
@@ -25,67 +27,47 @@ object XrayConfig {
     }
 
     fun build(xrayServers: List<ServerSpec>): Result {
+        val inbounds = JSONArray()
         val outbounds = JSONArray()
-        val ips = mutableSetOf<String>()
+        val rules = JSONArray()
+        val ips = linkedSetOf<String>()
+        val members = mutableListOf<Member>()
 
-        for (s in xrayServers) {
-            val ob = s.xray ?: continue
-            val ip = resolve(s.host)
-            if (ip != null) {
+        xrayServers.forEachIndexed { i, s ->
+            val ob = s.xray ?: return@forEachIndexed
+            val tag = ob.optString("tag").ifEmpty { "x$i" }
+            resolve(s.host)?.let { ip ->
                 ips.add(ip)
                 runCatching {
                     ob.getJSONObject("settings").getJSONArray("vnext").getJSONObject(0).put("address", ip)
                 }
             }
             outbounds.put(ob)
-        }
 
-        val inbound = JSONObject()
-            .put("tag", "socks-in")
-            .put("protocol", "socks")
-            .put("listen", "127.0.0.1")
-            .put("port", SOCKS_PORT)
-            .put("settings", JSONObject().put("udp", true).put("auth", "noauth"))
+            val port = SOCKS_PORT_BASE + i
+            val inTag = "in-$tag"
+            inbounds.put(
+                JSONObject()
+                    .put("tag", inTag)
+                    .put("protocol", "socks")
+                    .put("listen", "127.0.0.1")
+                    .put("port", port)
+                    .put("settings", JSONObject().put("udp", true).put("auth", "noauth")),
+            )
+            rules.put(
+                JSONObject().put("type", "field")
+                    .put("inboundTag", JSONArray().put(inTag))
+                    .put("outboundTag", tag),
+            )
+            members.add(Member(tag, s.name, port))
+        }
 
         val cfg = JSONObject()
             .put("log", JSONObject().put("loglevel", "warning"))
-            .put("inbounds", JSONArray().put(inbound))
+            .put("inbounds", inbounds)
             .put("outbounds", outbounds)
+            .put("routing", JSONObject().put("rules", rules))
 
-        // Health-based failover across multiple XHTTP servers (xray observatory + balancer).
-        // A single server is just the default outbound — no balancer needed.
-        if (outbounds.length() > 1) {
-            cfg.put(
-                "observatory",
-                JSONObject()
-                    .put("subjectSelector", JSONArray().put("x"))
-                    .put("probeURL", PROBE_URL)
-                    .put("probeInterval", "10s"),
-            )
-            cfg.put(
-                "routing",
-                JSONObject()
-                    .put(
-                        "balancers",
-                        JSONArray().put(
-                            JSONObject()
-                                .put("tag", "b")
-                                .put("selector", JSONArray().put("x"))
-                                .put("strategy", JSONObject().put("type", "leastPing")),
-                        ),
-                    )
-                    .put(
-                        "rules",
-                        JSONArray().put(
-                            JSONObject()
-                                .put("type", "field")
-                                .put("inboundTag", JSONArray().put("socks-in"))
-                                .put("balancerTag", "b"),
-                        ),
-                    ),
-            )
-        }
-
-        return Result(cfg.toString(), ips.toList())
+        return Result(cfg.toString(), ips.toList(), members)
     }
 }

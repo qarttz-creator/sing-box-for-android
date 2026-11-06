@@ -143,6 +143,7 @@ class QartzVpnService :
                 // Tunnel is up; only report "Connected" once traffic actually flows through it.
                 VpnState.set(VpnState.Stage.Connecting, "")
                 startConnectivityMonitor()
+                GatewayStatus.start() // read the active urltest member for heartbeat reporting
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)
                 sbLog("[qartz] start FAILED: ${e.message ?: e}")
@@ -202,7 +203,13 @@ class QartzVpnService :
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
             }
-            val body = """{"token":"$token","version":"${BuildConfig.VERSION_NAME}","gateway":"","platform":"android"}"""
+            val gateway = GatewayMap.name(this, GatewayStatus.selectedTag)
+            val body = org.json.JSONObject()
+                .put("token", token)
+                .put("version", BuildConfig.VERSION_NAME)
+                .put("gateway", gateway)
+                .put("platform", "android")
+                .toString()
             conn.outputStream.use { it.write(body.toByteArray()) }
             conn.responseCode
             conn.disconnect()
@@ -234,6 +241,7 @@ class QartzVpnService :
         monitorJob?.cancel()
         monitorJob = null
         scope.launch {
+            runCatching { GatewayStatus.stop() }
             runCatching { commandServer?.closeService() }
             runCatching { commandServer?.close() }
             commandServer = null
@@ -262,6 +270,7 @@ class QartzVpnService :
     }
 
     override fun onDestroy() {
+        runCatching { GatewayStatus.stop() }
         runCatching { XrayProcess.stop() }
         runCatching { fileDescriptor?.close() }
         super.onDestroy()

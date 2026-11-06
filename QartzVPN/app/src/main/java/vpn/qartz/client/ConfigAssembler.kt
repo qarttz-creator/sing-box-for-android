@@ -67,6 +67,7 @@ object ConfigAssembler {
         (servers.firstOrNull { it is Inet4Address } ?: servers.firstOrNull())
             ?.hostAddress
             ?.substringBefore('%') // drop any IPv6 scope id
+            ?.takeIf { it.isNotBlank() }
     } catch (e: Exception) {
         null
     }

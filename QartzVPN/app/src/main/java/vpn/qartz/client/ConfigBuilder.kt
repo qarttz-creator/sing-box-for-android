@@ -74,7 +74,9 @@ object ConfigBuilder {
             )
             .put(
                 JSONObject().put("type", "udp").put("tag", "dns-direct")
-                    .put("server", directDns ?: "8.8.8.8").put("detour", "direct"),
+                    .put("server", directDns?.takeIf { it.isNotBlank() } ?: "8.8.8.8")
+                    .put("server_port", 53)
+                    .put("detour", "direct"),
             )
 
         val dnsRules = JSONArray()

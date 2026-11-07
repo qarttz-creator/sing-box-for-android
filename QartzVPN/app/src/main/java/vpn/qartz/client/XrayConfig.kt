@@ -20,8 +20,15 @@ object XrayConfig {
 
     data class Result(val json: String, val directIps: List<String>, val members: List<Member>)
 
+    // Prefer IPv4: CDN-fronted hosts (Cloudflare) also publish AAAA, and getByName may return an
+    // IPv6 the mobile operator can't route — xray then can't reach the gateway and the tunnel flaps.
     private fun resolve(host: String): String? = try {
-        if (host.isEmpty()) null else InetAddress.getByName(host).hostAddress
+        if (host.isEmpty()) {
+            null
+        } else {
+            val all = InetAddress.getAllByName(host)
+            (all.firstOrNull { it is java.net.Inet4Address } ?: all.firstOrNull())?.hostAddress
+        }
     } catch (e: Exception) {
         null
     }

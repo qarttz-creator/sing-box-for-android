@@ -100,7 +100,10 @@ object ConfigBuilder {
             .put("type", "tun")
             .put("tag", "tun-in")
             .put("address", JSONArray().put("172.19.0.1/30"))
-            .put("mtu", 9000)
+            // Low MTU so TLS/web survives the deeply-nested CDN path (client → WS+TLS → Cloudflare
+            // → xray → reality/hysteria → exit). At 9000 small-packet apps (Telegram) worked but web
+            // TLS handshakes were dropped. 1280 is the safe floor; raise later if throughput needs it.
+            .put("mtu", 1280)
             .put("auto_route", true)
             .put("strict_route", true)
             .put("stack", "gvisor")

@@ -1,0 +1,75 @@
+name: libbox-awg
+
+# AWG milestone: build an AmneziaWG-capable libbox.aar from the Amnezia fork of
+# sing-box (amnezia-vpn/amnezia-box), in isolation, to prove the native core builds
+# for Android before wiring it into the app. Upstream sing-box rejects AWG, so the
+# fork is the source; the `with_awg` build tag is REQUIRED (without it only a stub
+# compiles and the "awg" endpoint type is unknown).
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/libbox-awg.yml"
+
+env:
+  AWG_REPO: https://github.com/amnezia-vpn/amnezia-box
+  AWG_REF: master               # AWG lives on master (protocol/awg, option/awg.go, include/awg.go)
+  GO_VERSION: "1.25.5"          # fork go.mod requires go 1.25.0
+  NDK_VERSION: "28.0.13004108"  # fixed version build_libbox prefers
+
+jobs:
+  libbox-awg:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"   # build_libbox hard-requires openjdk 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install NDK ${{ env.NDK_VERSION }}
+        run: |
+          echo "y" | sdkmanager --install "ndk;${NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Clone amnezia-box (AWG fork)
+        run: |
+          git clone --branch "$AWG_REF" --depth 1 "$AWG_REPO" amnezia-box
+          echo "--- confirm AWG is present ---"
+          test -f amnezia-box/option/awg.go && echo "option/awg.go OK"
+          test -f amnezia-box/protocol/awg/endpoint.go && echo "protocol/awg/endpoint.go OK"
+          grep -q "with_awg" amnezia-box/include/awg.go && echo "include/awg.go is with_awg-gated OK"
+
+      - name: Install gomobile
+        working-directory: amnezia-box
+        run: make lib_install
+
+      - name: Build libbox.aar (with_awg)
+        working-directory: amnezia-box
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+        run: |
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          # NOTE: build_libbox's default android sharedTags do NOT include with_awg,
+          # so it must be passed explicitly or only the awg stub compiles.
+          go run ./cmd/internal/build_libbox -target android -tags with_awg
+          ls -lh libbox*.aar
+
+      - name: Upload libbox-awg.aar
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbox-awg
+          path: |
+            amnezia-box/libbox.aar
+          if-no-files-found: error

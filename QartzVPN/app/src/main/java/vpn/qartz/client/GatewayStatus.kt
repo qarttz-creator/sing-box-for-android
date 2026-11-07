@@ -23,6 +23,15 @@ object GatewayStatus : CommandClientHandler {
     var selectedTag: String = ""
         private set
 
+    // Per-route liveness from the urltest group (URLTestDelay > 0 = a working latency was measured).
+    // This is the client's "test-check": which routes are alive, how many backups exist. Reported
+    // in the heartbeat so the admin panel can show each user's options.
+    @Volatile
+    var routes: List<RouteStat> = emptyList()
+        private set
+
+    data class RouteStat(val tag: String, val up: Boolean)
+
     private var client: CommandClient? = null
 
     fun start() {
@@ -43,6 +52,7 @@ object GatewayStatus : CommandClientHandler {
         val c = client
         client = null
         selectedTag = ""
+        routes = emptyList()
         if (c != null) thread { runCatching { c.disconnect() } }
     }
 
@@ -51,7 +61,16 @@ object GatewayStatus : CommandClientHandler {
         val it = message ?: return
         while (it.hasNext()) {
             val g = it.next()
-            if (g.tag == GROUP) selectedTag = g.selected ?: ""
+            if (g.tag == GROUP) {
+                selectedTag = g.selected ?: ""
+                val list = mutableListOf<RouteStat>()
+                val items = g.getItems()
+                while (items.hasNext()) {
+                    val item = items.next() ?: continue
+                    list.add(RouteStat(item.tag ?: "", item.getURLTestDelay() > 0))
+                }
+                routes = list
+            }
         }
     }
 

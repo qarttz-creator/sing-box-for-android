@@ -207,11 +207,18 @@ class QartzVpnService :
                 setRequestProperty("Content-Type", "application/json")
             }
             val gateway = GatewayMap.name(this, GatewayStatus.selectedTag)
+            // Report the test-check: which routes are alive, so the panel shows each user's options.
+            val routesArr = org.json.JSONArray()
+            for (r in GatewayStatus.routes) {
+                val nm = GatewayMap.name(this, r.tag).ifBlank { r.tag }
+                routesArr.put(org.json.JSONObject().put("name", nm).put("up", r.up))
+            }
             val body = org.json.JSONObject()
                 .put("token", token)
                 .put("version", BuildConfig.VERSION_NAME)
                 .put("gateway", gateway)
                 .put("platform", "android")
+                .put("routes", routesArr)
                 .toString()
             conn.outputStream.use { it.write(body.toByteArray()) }
             conn.responseCode
@@ -243,6 +250,24 @@ class QartzVpnService :
                 if (code in 200..299 && text.isNotBlank() && !text.trimStart().startsWith("<")) {
                     ProfileStore.saveLinks(this@QartzVpnService, text)
                     sbLog("sub refreshed over tunnel (${text.length} bytes)")
+                }
+                // Also self-update the shared activation / test profile (bootstrap routes) over the
+                // tunnel, so the baked-in profile never goes stale.
+                runCatching {
+                    val u = URL(sub)
+                    val base = "${u.protocol}://${u.authority}"
+                    val ac = (URL("$base/activation").openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                        requestMethod = "GET"
+                    }
+                    val acode = ac.responseCode
+                    val atext = if (acode in 200..299) ac.inputStream.bufferedReader().use { it.readText() } else ""
+                    ac.disconnect()
+                    if (acode in 200..299 && atext.isNotBlank() && !atext.trimStart().startsWith("<")) {
+                        ProfileStore.saveActivationLinks(this@QartzVpnService, atext)
+                        sbLog("activation profile refreshed over tunnel (${atext.length} bytes)")
+                    }
                 }
             }
         }

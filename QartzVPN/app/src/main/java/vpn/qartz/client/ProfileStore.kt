@@ -11,6 +11,7 @@ object ProfileStore {
     private const val KEY_LINKS = "links"
     private const val KEY_SELECTION = "selection"
     private const val KEY_SUB_URL = "sub_url"
+    private const val KEY_ACTIVATION = "activation"
     private const val KEY_ROUTE_MODE = "route_mode"
     private const val KEY_ROUTE_APPS = "route_apps"
     private const val KEY_ALLOW_LAN = "allow_lan"
@@ -43,6 +44,15 @@ object ProfileStore {
 
     fun saveSubUrl(c: Context, url: String) {
         prefs(c).edit().putString(KEY_SUB_URL, url).apply()
+    }
+
+    /** The shared activation / test profile (bootstrap routes), self-updated over the tunnel from
+     *  the control plane's /activation. Used to build a tunnel when the user's own sub host is
+     *  blocked, and as the route test-check. Empty until first fetched. */
+    fun activationLinks(c: Context): String = prefs(c).getString(KEY_ACTIVATION, "") ?: ""
+
+    fun saveActivationLinks(c: Context, text: String) {
+        prefs(c).edit().putString(KEY_ACTIVATION, text).apply()
     }
 
     fun routingMode(c: Context): Int = prefs(c).getInt(KEY_ROUTE_MODE, MODE_OFF)

@@ -168,12 +168,15 @@ class QartzVpnService :
         monitorJob?.cancel()
         monitorJob = scope.launch {
             var connected = false
+            var subRefreshed = false
             var fails = 0
             var hbTick = 0
             while (isActive && running) {
                 if (probeTunnel()) {
                     fails = 0
                     if (!connected) { connected = true; VpnState.set(VpnState.Stage.Connected, "") }
+                    // A route is confirmed up → pull the latest server list THROUGH the tunnel, once.
+                    if (!subRefreshed) { subRefreshed = true; refreshSubOverTunnel() }
                     if (hbTick % 4 == 0) sendHeartbeat()  // ~every 60s
                     hbTick++
                 } else {
@@ -215,6 +218,33 @@ class QartzVpnService :
             conn.disconnect()
         } catch (e: Exception) {
             // best-effort
+        }
+    }
+
+    // Pull the latest server list THROUGH the tunnel, once a route is confirmed up. The subscription
+    // host is often blocked on the open internet (the whole reason for the tunnel), so a direct fetch
+    // fails for many users; over the tunnel it is reached via the exit. Gated on a working probe — a
+    // refresh is pointless without a live route, so this never runs then. The fresh list is saved for
+    // the next (re)connect; the current session is left undisturbed.
+    private fun refreshSubOverTunnel() {
+        val sub = ProfileStore.subUrl(this)
+        if (sub.isBlank()) return // manual-config user (pasted links/JSON) — nothing to refresh
+        scope.launch {
+            runCatching {
+                val conn = (URL(sub).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    requestMethod = "GET"
+                }
+                val code = conn.responseCode
+                val text = if (code in 200..299) conn.inputStream.bufferedReader().use { it.readText() } else ""
+                conn.disconnect()
+                // Guard against HTML error/captive-portal pages masquerading as a sub body.
+                if (code in 200..299 && text.isNotBlank() && !text.trimStart().startsWith("<")) {
+                    ProfileStore.saveLinks(this@QartzVpnService, text)
+                    sbLog("sub refreshed over tunnel (${text.length} bytes)")
+                }
+            }
         }
     }
 

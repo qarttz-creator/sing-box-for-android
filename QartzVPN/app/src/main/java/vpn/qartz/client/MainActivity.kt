@@ -261,6 +261,10 @@ class MainActivity : AppCompatActivity() {
             .setView(ScrollView(this).apply { addView(input) })
             .setPositiveButton(R.string.save) { _, _ ->
                 ProfileStore.saveLinks(this, input.text.toString())
+                // Manual config is an authoritative override — detach the subscription so the next
+                // silent /sub refresh (or sub-over-tunnel) does not overwrite what was just pasted
+                // (e.g. an AmneziaWG config that isn't in the subscription). Re-add via "Сменить подписку".
+                ProfileStore.saveSubUrl(this, "")
                 toast(getString(R.string.saved))
             }
             .setNegativeButton(R.string.close, null)

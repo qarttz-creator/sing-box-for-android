@@ -22,13 +22,15 @@ object ConfigBuilder {
     fun build(
         sbServers: List<ServerSpec>,
         xrayMembers: List<XrayConfig.Member> = emptyList(),
+        awgServers: List<ServerSpec> = emptyList(),
         directIps: List<String> = emptyList(),
         allowLan: Boolean = true,
         ruDirect: Boolean = true,
     ): String {
-        require(sbServers.isNotEmpty() || xrayMembers.isNotEmpty()) { "no servers" }
+        require(sbServers.isNotEmpty() || xrayMembers.isNotEmpty() || awgServers.isNotEmpty()) { "no servers" }
 
         val outbounds = JSONArray()
+        val endpoints = JSONArray()
         val groupMembers = JSONArray()
         for (s in sbServers) {
             outbounds.put(s.outbound)
@@ -45,6 +47,17 @@ object ConfigBuilder {
                     .put("version", "5"),
             )
             groupMembers.put(m.tag)
+        }
+        // AmneziaWG gateways are sing-box `awg` endpoints (top-level "endpoints"); their tag is a
+        // normal route target, so they join the urltest group like any other member.
+        val awgDirectIps = mutableListOf<String>()
+        val awgDirectDomains = mutableListOf<String>()
+        for (s in awgServers) {
+            endpoints.put(s.outbound)
+            groupMembers.put(s.tag)
+            if (s.host.isNotEmpty()) {
+                if (isIpLiteral(s.host)) awgDirectIps.add(s.host) else awgDirectDomains.add(s.host)
+            }
         }
 
         // urltest = client-side balancer / auto-failover across the given members.
@@ -116,11 +129,19 @@ object ConfigBuilder {
         val rules = JSONArray()
             .put(JSONObject().put("action", "sniff"))
             .put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
-        // xray's own traffic to the XHTTP server(s) must bypass the tun, or it loops.
-        if (directIps.isNotEmpty()) {
+        // xray's own traffic to the XHTTP server(s), and the AWG handshake to its gateway, must bypass
+        // the tun or they loop. (The awg endpoint dials direct via auto_detect_interface too, but pin
+        // the peer IP to be safe.)
+        val allDirectIps = directIps + awgDirectIps
+        if (allDirectIps.isNotEmpty()) {
             val cidrs = JSONArray()
-            directIps.forEach { cidrs.put(if (it.contains(":")) "$it/128" else "$it/32") }
+            allDirectIps.forEach { cidrs.put(if (it.contains(":")) "$it/128" else "$it/32") }
             rules.put(JSONObject().put("ip_cidr", cidrs).put("outbound", "direct"))
+        }
+        if (awgDirectDomains.isNotEmpty()) {
+            val doms = JSONArray()
+            awgDirectDomains.forEach { doms.put(it) }
+            rules.put(JSONObject().put("domain", doms).put("outbound", "direct"))
         }
         if (ruDirect) {
             val ru = JSONArray()
@@ -135,12 +156,17 @@ object ConfigBuilder {
             .put("auto_detect_interface", true)
             .put("default_domain_resolver", JSONObject().put("server", "dns-direct"))
 
-        return JSONObject()
+        val root = JSONObject()
             .put("log", JSONObject().put("level", "warn"))
             .put("dns", dns)
             .put("inbounds", JSONArray().put(tun))
             .put("outbounds", outbounds)
             .put("route", route)
-            .toString(2)
+        if (endpoints.length() > 0) root.put("endpoints", endpoints)
+        return root.toString(2)
     }
+
+    /** Rough IP-literal check (IPv4 dotted-quad or anything with ':' = IPv6) to decide direct routing. */
+    private fun isIpLiteral(host: String): Boolean =
+        host.contains(":") || host.matches(Regex("""^\d{1,3}(\.\d{1,3}){3}$"""))
 }

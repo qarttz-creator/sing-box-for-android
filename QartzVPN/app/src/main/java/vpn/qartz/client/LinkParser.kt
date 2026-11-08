@@ -7,7 +7,7 @@ import org.json.JSONObject
 /** Which core runs a given server. xray handles all VLESS (reality/grpc/xhttp/ws/vision) — it is
  *  proven to connect to these gateways where sing-box does not; sing-box handles hysteria2
  *  (which xray can't). */
-enum class CoreKind { SINGBOX, XRAY }
+enum class CoreKind { SINGBOX, XRAY, AWG }
 
 /**
  * A parsed server.
@@ -39,6 +39,7 @@ object LinkParser {
             when (uri.scheme?.lowercase()) {
                 "vless" -> vless(uri, index)
                 "hysteria2", "hy2" -> hysteria2(uri, index)
+                "awg", "amneziawg" -> awg(line, index)
                 else -> null
             }
         } catch (e: Exception) {
@@ -162,5 +163,27 @@ object LinkParser {
         out.put("tls", tls)
 
         return ServerSpec(name(uri, index), tag, CoreKind.SINGBOX, out)
+    }
+
+    /** awg://<base64(AmneziaWG INI)>#name → a sing-box `awg` endpoint (for subscriptions). */
+    private fun awg(line: String, index: Int): ServerSpec? {
+        val hash = line.indexOf('#')
+        val name = if (hash >= 0) Uri.decode(line.substring(hash + 1)) else "AWG ${index + 1}"
+        val afterScheme = line.substringAfter("://", "")
+        val b64 = (if (hash >= 0) afterScheme.substringBefore('#') else afterScheme).trim()
+        if (b64.isEmpty()) return null
+        val ini = decodeB64(b64) ?: return null
+        val tag = "a$index"
+        val ep = AwgConfig.parseIni(ini, tag) ?: return null
+        val peer = ep.optJSONArray("peers")?.optJSONObject(0)
+        val host = peer?.optString("address").orEmpty()
+        val port = peer?.optInt("port") ?: 0
+        return ServerSpec(name, tag, CoreKind.AWG, ep, host, port)
+    }
+
+    private fun decodeB64(s: String): String? = try {
+        String(android.util.Base64.decode(s, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING))
+    } catch (e: Exception) {
+        try { String(android.util.Base64.decode(s, android.util.Base64.DEFAULT)) } catch (e2: Exception) { null }
     }
 }

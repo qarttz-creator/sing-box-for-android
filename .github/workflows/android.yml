@@ -20,7 +20,11 @@ on:
       - ".github/workflows/android.yml"
 
 env:
-  SINGBOX_REF: v1.14.4
+  # Core is the Amnezia fork of sing-box (adds the `awg` endpoint). Upstream sing-box rejects AWG,
+  # so the whole app core is built from the fork with `-tags with_awg`; vless/hysteria/reality still
+  # work (fork is sing-box 1.14 based). Build it via cmd/internal/build_libbox like the fork does.
+  AWG_REPO: https://github.com/amnezia-vpn/amnezia-box
+  AWG_REF: master
   XRAY_REF: v1.250911.0
   GO_VERSION: "1.25.5"
   NDK_VERSION: "28.0.13004108"
@@ -60,22 +64,26 @@ jobs:
         uses: actions/cache@v4
         with:
           path: core-out/libbox.aar
-          key: libbox-${{ env.SINGBOX_REF }}-ndk${{ env.NDK_VERSION }}-go${{ env.GO_VERSION }}
+          # AWG-capable core from the fork — distinct key so the old upstream libbox is never reused.
+          key: libbox-awg-${{ env.AWG_REF }}-ndk${{ env.NDK_VERSION }}-go${{ env.GO_VERSION }}-v1
 
-      - name: Build libbox.aar (cache miss)
+      - name: Build libbox.aar from amnezia-box (with_awg, cache miss)
         if: steps.libbox-cache.outputs.cache-hit != 'true'
         run: |
           # NDK is only needed to compile the native core; skip it on cache hits.
-          sdkmanager --install "ndk;${NDK_VERSION}"
+          echo "y" | sdkmanager --install "ndk;${NDK_VERSION}"
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/${NDK_VERSION}"
-          git clone --branch "$SINGBOX_REF" --depth 1 \
-            https://github.com/SagerNet/sing-box sing-box-core
-          cd sing-box-core
+          git clone --branch "$AWG_REF" --depth 1 "$AWG_REPO" amnezia-box
+          test -f amnezia-box/option/awg.go && echo "AWG source present"
+          cd amnezia-box
           make lib_install
           export PATH="$PATH:$(go env GOPATH)/bin"
-          make lib_android
+          # build_libbox's default android sharedTags do NOT include with_awg — pass it explicitly,
+          # or only the awg stub compiles and the "awg" endpoint type stays unknown.
+          go run ./cmd/internal/build_libbox -target android -tags with_awg
           mkdir -p "$GITHUB_WORKSPACE/core-out"
           cp libbox.aar "$GITHUB_WORKSPACE/core-out/libbox.aar"
+          ls -lh "$GITHUB_WORKSPACE/core-out/libbox.aar"
 
       - name: Place core into app
         run: |

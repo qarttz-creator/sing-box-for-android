@@ -71,9 +71,20 @@ class ActivationActivity : AppCompatActivity() {
                     done()
                 }
             } catch (e: Exception) {
+                // Subscription host unreachable (often blocked on hostile networks). Fall back to
+                // BOOTSTRAP: store the sub URL, connect via the activation/test profile, and let
+                // sub-over-tunnel pull the real servers once a route is up.
+                val boot = ActivationProfile.routes(this)
                 runOnUiThread {
                     setBusy(false)
-                    toast(getString(R.string.activate_error) + ": " + (e.message ?: ""))
+                    if (boot.isNotBlank()) {
+                        ProfileStore.saveSubUrl(this, url)   // enables sub-over-tunnel refresh
+                        ProfileStore.saveLinks(this, boot)   // connect via bootstrap routes
+                        toast(getString(R.string.activate_bootstrap))
+                        done()
+                    } else {
+                        toast(getString(R.string.activate_error) + ": " + (e.message ?: ""))
+                    }
                 }
             }
         }

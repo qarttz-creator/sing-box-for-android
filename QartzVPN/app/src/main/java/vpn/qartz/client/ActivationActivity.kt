@@ -53,6 +53,15 @@ class ActivationActivity : AppCompatActivity() {
             return
         }
 
+        // AmneziaWG config pasted directly (the INI Amnezia/the panel exports) — the Beeline-surviving
+        // transport. Stored as the profile; ConfigAssembler turns it into an awg endpoint.
+        if (AwgConfig.looksLikeIni(input)) {
+            ProfileStore.saveLinks(this, input)
+            ProfileStore.saveSubUrl(this, "")
+            done()
+            return
+        }
+
         // Manual override: the user pasted server lines (or raw sing-box JSON) directly.
         if (input.startsWith("{") || input.contains("://")) {
             ProfileStore.saveLinks(this, input)

@@ -15,6 +15,19 @@ object ConfigAssembler {
         data class Error(val message: String) : Result()
     }
 
+    /** Per-app routing → (includePackages, excludePackages) for the tun, or empty when mode is off.
+     *  Our own package always stays in the tunnel so the app itself keeps working. */
+    private fun perApp(ctx: Context): Pair<List<String>, List<String>> {
+        val apps = ProfileStore.selectedApps(ctx)
+        if (apps.isEmpty()) return emptyList<String>() to emptyList()
+        val pkg = ctx.packageName
+        return when (ProfileStore.routingMode(ctx)) {
+            ProfileStore.MODE_EXCLUDE -> emptyList<String>() to (apps - pkg).toList()
+            ProfileStore.MODE_INCLUDE -> (apps + pkg).toList() to emptyList()
+            else -> emptyList<String>() to emptyList()
+        }
+    }
+
     fun assemble(ctx: Context): Result {
         val links = ProfileStore.loadLinks(ctx)
 
@@ -38,11 +51,14 @@ object ConfigAssembler {
                 )
                 XrayConfigStore.clear(ctx)
                 GatewayMap.save(ctx, mapOf("a0" to "AmneziaWG"))
+                val (inc, exc) = perApp(ctx)
                 val cfg = ConfigBuilder.build(
                     sbServers = emptyList(),
                     awgServers = listOf(spec),
                     allowLan = ProfileStore.allowLan(ctx),
                     ruDirect = ProfileStore.ruDirect(ctx),
+                    includePackages = inc,
+                    excludePackages = exc,
                 )
                 ConfigStore.save(ctx, cfg)
                 Result.Ok
@@ -76,6 +92,7 @@ object ConfigAssembler {
             xrayMembers.forEach { gwMap[it.tag] = it.name }
             GatewayMap.save(ctx, gwMap)
 
+            val (inc, exc) = perApp(ctx)
             val sbCfg = ConfigBuilder.build(
                 sbServers = sb,
                 xrayMembers = xrayMembers,
@@ -83,6 +100,8 @@ object ConfigAssembler {
                 directIps = directIps,
                 allowLan = ProfileStore.allowLan(ctx),
                 ruDirect = ProfileStore.ruDirect(ctx),
+                includePackages = inc,
+                excludePackages = exc,
             )
             ConfigStore.save(ctx, sbCfg)
             Result.Ok

@@ -26,6 +26,8 @@ object ConfigBuilder {
         directIps: List<String> = emptyList(),
         allowLan: Boolean = true,
         ruDirect: Boolean = true,
+        includePackages: List<String> = emptyList(),
+        excludePackages: List<String> = emptyList(),
     ): String {
         require(sbServers.isNotEmpty() || xrayMembers.isNotEmpty() || awgServers.isNotEmpty()) { "no servers" }
 
@@ -124,6 +126,16 @@ object ConfigBuilder {
             val exclude = JSONArray()
             LAN_RANGES.forEach { exclude.put(it) }
             tun.put("route_exclude_address", exclude)
+        }
+        // Per-app routing (sing-box tun handles it; the fork libbox has no runtime OverrideOptions):
+        // include = only these apps go through the tunnel; exclude = these apps bypass it.
+        if (includePackages.isNotEmpty()) {
+            val arr = JSONArray(); includePackages.forEach { arr.put(it) }
+            tun.put("include_package", arr)
+        }
+        if (excludePackages.isNotEmpty()) {
+            val arr = JSONArray(); excludePackages.forEach { arr.put(it) }
+            tun.put("exclude_package", arr)
         }
 
         val rules = JSONArray()

@@ -3,16 +3,18 @@ package vpn.qartz.client
 import android.content.Context
 
 /**
- * The activation / test profile: a small set of robust entry routes used to BOOTSTRAP a tunnel when
- * the user's own subscription host is blocked, and as the route test-check.
+ * The activation / test profile: the current entry routes every client uses to BUILD its tunnel. These
+ * are the same gateways the subscription rides on, shipped in the APK so the client can come up without
+ * first fetching anything over the open internet. Bringing this tunnel up IS the health check; the
+ * user's own per-user subscription is then pulled over that tunnel and the client reloads onto it.
  *
  * Resolution order:
  *  1. the profile self-updated over the tunnel from the control plane's /activation (ProfileStore), then
- *  2. the baked-in seed shipped in the APK (assets/activation_seed.txt) — the only thing available on a
- *     brand-new install on a blocked network.
+ *  2. the baked-in seed shipped in the APK (assets/activation_seed.txt).
  *
- * On a blocked network a fresh client with no cache relies on the seed; once it has connected once, the
- * self-updated cache takes over so the baked-in list never has to be current.
+ * When the routes change, ship a new build (the seed is refreshed) — and already-connected clients also
+ * self-update the cache over the tunnel. Later the activation profile's egress can be limited to the
+ * control plane alone, since the client switches to its own routes right after bootstrap.
  */
 object ActivationProfile {
 

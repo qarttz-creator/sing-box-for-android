@@ -1,13 +1,12 @@
-# QartzVPN — baked-in activation / bootstrap routes (seed).
+# QartzVPN — baked-in activation routes (seed).
 #
-# These are the entry routes a brand-new client uses to build its FIRST tunnel on a blocked network,
-# before it can reach the control plane to fetch the user's own subscription. Once connected, the
-# client self-updates this profile over the tunnel from /activation, so this baked-in list is only a
-# cold-start fallback and does not have to stay current.
+# These are the CURRENT entry routes every client uses to BUILD its tunnel on first activation. They
+# are the same gateways the subscription rides on — bringing this tunnel up is the health check, after
+# which the client pulls the user's own subscription over the tunnel and reloads onto it.
 #
-# Put one server link per line (vless://… , hysteria2://… , and later awg/amneziawg configs).
-# Use the MOST censorship-resistant routes available — on Beeline that means AmneziaWG (added after the
-# AWG client core-swap). Lines starting with '#' and blank lines are ignored.
+# One server link per line (vless://… , hysteria2://… , and later awg/amneziawg configs). Use the most
+# censorship-resistant routes available — on Beeline that means AmneziaWG (added after the AWG core-swap);
+# until AWG is in here, a brand-new client on Beeline will correctly report "VPN doesn't work here".
 #
-# Leave empty until real activation routes are provisioned: with no seed and no cache, bootstrap simply
-# does not engage and activation behaves as before (direct /sub fetch only).
+# When the routes change, update this file and ship a new build. Lines starting with '#' and blank
+# lines are ignored. Keep this list in sync with the control plane's /activation output.

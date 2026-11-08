@@ -168,22 +168,33 @@ class QartzVpnService :
         monitorJob?.cancel()
         monitorJob = scope.launch {
             var connected = false
+            var everConnected = false
             var subRefreshed = false
             var fails = 0
             var hbTick = 0
+            val startedAt = System.currentTimeMillis()
             while (isActive && running) {
                 if (probeTunnel()) {
                     fails = 0
-                    if (!connected) { connected = true; VpnState.set(VpnState.Stage.Connected, "") }
+                    if (!connected) { connected = true; everConnected = true; VpnState.set(VpnState.Stage.Connected, "") }
                     // A route is confirmed up → pull the latest server list THROUGH the tunnel, once.
                     if (!subRefreshed) { subRefreshed = true; refreshSubOverTunnel() }
                     if (hbTick % 4 == 0) sendHeartbeat()  // ~every 60s
                     hbTick++
                 } else {
                     fails++
-                    if (fails >= 2) {
-                        connected = false
-                        VpnState.set(VpnState.Stage.Connecting, "нет ответа через туннель…")
+                    if (connected) {
+                        if (fails >= 2) {
+                            connected = false
+                            VpnState.set(VpnState.Stage.Connecting, "нет ответа через туннель…")
+                        }
+                    } else if (!everConnected && System.currentTimeMillis() - startedAt > 45000L) {
+                        // No route ever came up — be honest instead of spinning forever. On a network
+                        // that blocks every transport we ship (e.g. Beeline before AWG), there is no
+                        // working VPN here, and the user needs to know that, not a fake "connecting…".
+                        sbLog("[qartz] no route came up within 45s — reporting honest failure")
+                        fail(getString(R.string.activate_no_route))
+                        return@launch
                     }
                 }
                 delay(if (connected) 15000L else 4000L)
@@ -248,8 +259,28 @@ class QartzVpnService :
                 conn.disconnect()
                 // Guard against HTML error/captive-portal pages masquerading as a sub body.
                 if (code in 200..299 && text.isNotBlank() && !text.trimStart().startsWith("<")) {
-                    ProfileStore.saveLinks(this@QartzVpnService, text)
-                    sbLog("sub refreshed over tunnel (${text.length} bytes)")
+                    val before = ProfileStore.loadLinks(this@QartzVpnService).trim()
+                    if (text.trim() != before) {
+                        ProfileStore.saveLinks(this@QartzVpnService, text)
+                        sbLog("sub refreshed over tunnel (${text.length} bytes) — switching to per-user routes")
+                        // We bootstrapped on the shared activation routes; now that the user's own
+                        // servers are in hand, rebuild the runtime config and hot-reload onto them so
+                        // the activation account stops carrying traffic (its egress will later be
+                        // limited to the control plane). If assembly fails, stay on what works.
+                        runCatching {
+                            if (ConfigAssembler.assemble(this@QartzVpnService) is ConfigAssembler.Result.Ok) {
+                                commandServer?.startOrReloadService(
+                                    instrumentedConfig(ConfigStore.load(this@QartzVpnService)),
+                                    perAppOverride(),
+                                )
+                                sbLog("[qartz] reloaded onto per-user routes")
+                            } else {
+                                sbLog("[qartz] per-user config assemble failed; staying on activation routes")
+                            }
+                        }
+                    } else {
+                        sbLog("sub refreshed over tunnel — unchanged, staying put")
+                    }
                 }
                 // Also self-update the shared activation / test profile (bootstrap routes) over the
                 // tunnel, so the baked-in profile never goes stale.

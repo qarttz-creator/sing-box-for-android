@@ -34,13 +34,26 @@ class ActivationActivity : AppCompatActivity() {
             return
         }
 
-        // A pasted subscription link → fetch servers over HTTP.
+        // A subscription link. We do NOT fetch it over the open internet to connect — a successful
+        // fetch says nothing about whether the TUNNEL actually works on this network, which is the
+        // whole point of the VPN. Instead: store the sub URL, bring the tunnel up on the baked-in
+        // activation routes (the same gateways the subscription uses) — building that tunnel IS the
+        // health check — and let sub-over-tunnel pull the user's own servers once a route is up.
         if (input.startsWith("http://", true) || input.startsWith("https://", true)) {
+            val boot = ActivationProfile.routes(this)
+            if (boot.isNotBlank()) {
+                ProfileStore.saveSubUrl(this, input)   // enables sub-over-tunnel refresh + heartbeat
+                ProfileStore.saveLinks(this, boot)     // connect via activation routes (the test)
+                done()
+                return
+            }
+            // No activation routes baked/cached yet (pre-provisioning window) — last resort so a
+            // clean-network user isn't stuck before the seed is filled.
             fetchSub(input)
             return
         }
 
-        // Fallback: the user pasted the server lines (or raw JSON) directly.
+        // Manual override: the user pasted server lines (or raw sing-box JSON) directly.
         if (input.startsWith("{") || input.contains("://")) {
             ProfileStore.saveLinks(this, input)
             ProfileStore.saveSubUrl(this, "")
@@ -71,20 +84,9 @@ class ActivationActivity : AppCompatActivity() {
                     done()
                 }
             } catch (e: Exception) {
-                // Subscription host unreachable (often blocked on hostile networks). Fall back to
-                // BOOTSTRAP: store the sub URL, connect via the activation/test profile, and let
-                // sub-over-tunnel pull the real servers once a route is up.
-                val boot = ActivationProfile.routes(this)
                 runOnUiThread {
                     setBusy(false)
-                    if (boot.isNotBlank()) {
-                        ProfileStore.saveSubUrl(this, url)   // enables sub-over-tunnel refresh
-                        ProfileStore.saveLinks(this, boot)   // connect via bootstrap routes
-                        toast(getString(R.string.activate_bootstrap))
-                        done()
-                    } else {
-                        toast(getString(R.string.activate_error) + ": " + (e.message ?: ""))
-                    }
+                    toast(getString(R.string.activate_error) + ": " + (e.message ?: ""))
                 }
             }
         }

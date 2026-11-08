@@ -40,6 +40,7 @@
     <string name="activate_bad">Не удалось распознать ссылку</string>
     <string name="activate_error">Не удалось активировать</string>
     <string name="activate_bootstrap">Подписка недоступна напрямую — подключаемся через активационный профиль. Ваши серверы подтянутся после подключения.</string>
+    <string name="activate_no_route">Не удалось поднять ни один маршрут на этой сети. Похоже, провайдер (например, Билайн) блокирует текущие транспорты — VPN здесь пока не работает.</string>
 
     <!-- hidden maintenance menu -->
     <string name="dev_title">Обслуживание</string>

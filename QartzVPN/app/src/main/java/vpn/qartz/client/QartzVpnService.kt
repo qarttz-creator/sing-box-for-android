@@ -501,7 +501,7 @@ class QartzVpnService :
         return packages?.firstOrNull() ?: error("android: package not found for uid $uid")
     }
 
-    override fun uIDByPackageName(packageName: String?): Int {
+    override fun uidByPackageName(packageName: String?): Int {
         val name = packageName ?: error("android: empty package name")
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

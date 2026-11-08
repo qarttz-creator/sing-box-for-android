@@ -553,39 +553,46 @@ class QartzVpnService :
     }
 
     override fun getInterfaces(): NetworkInterfaceIterator {
-        val networks = App.connectivity.allNetworks
-        val networkInterfaces = JavaNetworkInterface.getNetworkInterfaces().toList()
+        val cm = App.connectivity
         val interfaces = mutableListOf<LibboxNetworkInterface>()
-        for (network in networks) {
-            val boxInterface = LibboxNetworkInterface()
-            val linkProperties = App.connectivity.getLinkProperties(network) ?: continue
-            val networkCapabilities = App.connectivity.getNetworkCapabilities(network) ?: continue
-            boxInterface.name = linkProperties.interfaceName
-            val networkInterface = networkInterfaces.find { it.name == boxInterface.name } ?: continue
-            boxInterface.dnsServer =
-                StringArray(linkProperties.dnsServers.mapNotNull { it.hostAddress }.iterator())
-            boxInterface.type = when {
-                networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> Libbox.InterfaceTypeWIFI
-                networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> Libbox.InterfaceTypeCellular
-                networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> Libbox.InterfaceTypeEthernet
-                else -> Libbox.InterfaceTypeOther
+        for (network in cm.allNetworks) {
+            try {
+                val linkProperties = cm.getLinkProperties(network) ?: continue
+                val caps = cm.getNetworkCapabilities(network) ?: continue
+                val name = linkProperties.interfaceName ?: continue
+                val jni = JavaNetworkInterface.getByName(name) ?: continue
+                val boxInterface = LibboxNetworkInterface()
+                boxInterface.name = name
+                boxInterface.index = jni.index
+                runCatching { boxInterface.mtu = jni.mtu }
+                boxInterface.type = when {
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> Libbox.InterfaceTypeWIFI
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> Libbox.InterfaceTypeCellular
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> Libbox.InterfaceTypeEthernet
+                    else -> Libbox.InterfaceTypeOther
+                }
+                // Addresses MUST be clean CIDR — the core parses each with netip.MustParsePrefix
+                // (panics on a scope zone like fe80::1%wlan0), so strip the zone and skip bad ones.
+                boxInterface.dnsServer =
+                    StringArray(linkProperties.dnsServers.mapNotNull { it.hostAddress?.substringBefore('%') }.iterator())
+                boxInterface.addresses =
+                    StringArray(jni.interfaceAddresses.mapNotNull { it.toPrefix() }.iterator())
+                var dumpFlags = 0
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    dumpFlags = OsConstants.IFF_UP or OsConstants.IFF_RUNNING
+                }
+                if (jni.isLoopback) dumpFlags = dumpFlags or OsConstants.IFF_LOOPBACK
+                if (jni.isPointToPoint) dumpFlags = dumpFlags or OsConstants.IFF_POINTOPOINT
+                if (jni.supportsMulticast()) dumpFlags = dumpFlags or OsConstants.IFF_MULTICAST
+                boxInterface.flags = dumpFlags
+                boxInterface.metered =
+                    !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+                interfaces.add(boxInterface)
+            } catch (e: Exception) {
+                sbLog("[qartz] getInterfaces: skip a network: ${e.message ?: e}")
             }
-            boxInterface.index = networkInterface.index
-            runCatching { boxInterface.mtu = networkInterface.mtu }
-            boxInterface.addresses =
-                StringArray(networkInterface.interfaceAddresses.mapNotNull { it.toPrefix() }.iterator())
-            var dumpFlags = 0
-            if (networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
-                dumpFlags = OsConstants.IFF_UP or OsConstants.IFF_RUNNING
-            }
-            if (networkInterface.isLoopback) dumpFlags = dumpFlags or OsConstants.IFF_LOOPBACK
-            if (networkInterface.isPointToPoint) dumpFlags = dumpFlags or OsConstants.IFF_POINTOPOINT
-            if (networkInterface.supportsMulticast()) dumpFlags = dumpFlags or OsConstants.IFF_MULTICAST
-            boxInterface.flags = dumpFlags
-            boxInterface.metered =
-                !networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-            interfaces.add(boxInterface)
         }
+        sbLog("[qartz] getInterfaces -> ${interfaces.size}: ${interfaces.joinToString { it.name ?: "?" }}")
         return InterfaceArray(interfaces.iterator())
     }
 
@@ -631,11 +638,9 @@ class QartzVpnService :
 
     @SuppressLint("DefaultLocale")
     private fun InterfaceAddress.toPrefix(): String? {
-        val host = address?.hostAddress ?: return null
-        return if (address is Inet6Address) {
-            "${Inet6Address.getByAddress(address.address).hostAddress}/$networkPrefixLength"
-        } else {
-            "$host/$networkPrefixLength"
-        }
+        val host = (address?.hostAddress ?: return null).substringBefore('%') // strip IPv6 zone
+        val len = networkPrefixLength.toInt()
+        if (host.isEmpty() || len < 0) return null
+        return "$host/$len"
     }
 }

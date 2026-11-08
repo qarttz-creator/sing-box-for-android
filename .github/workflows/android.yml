@@ -190,10 +190,22 @@ jobs:
           path: QartzVPN/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
+      # Rolling channels (android-dev / android-latest) must always show THIS run's build. softprops
+      # updating an existing release can leave stale assets/date behind, so recreate the channel release
+      # from scratch each run — its APKs, version.json, tag and date then always reflect the latest build.
+      - name: Refresh channel release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "${{ steps.chan.outputs.tag }}" --yes --cleanup-tag 2>/dev/null \
+            && echo "removed stale ${{ steps.chan.outputs.tag }}" \
+            || echo "no previous ${{ steps.chan.outputs.tag }} to remove"
+
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.chan.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: ${{ steps.chan.outputs.name }}
           prerelease: ${{ steps.chan.outputs.prerelease }}
           body: |

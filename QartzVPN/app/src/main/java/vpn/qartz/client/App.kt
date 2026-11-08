@@ -22,16 +22,13 @@ class App : Application() {
         val base = filesDir.also { it.mkdirs() }
         val working = (getExternalFilesDir(null) ?: filesDir).also { it.mkdirs() }
         val temp = cacheDir.also { it.mkdirs() }
+        // amnezia-box libbox SetupOptions (older/simpler than upstream 1.14.x — no log/version fields).
         Libbox.setup(
             SetupOptions().apply {
                 basePath = base.path
                 workingPath = working.path
                 tempPath = temp.path
-                logMaxLines = 3000
-                debug = BuildConfig.DEBUG
-                crashReportSource = "QartzVPN"
-                appVersion = BuildConfig.VERSION_CODE.toString()
-                appMarketingVersion = BuildConfig.VERSION_NAME
+                fixAndroidStack = true
             },
         )
         libboxReady = true

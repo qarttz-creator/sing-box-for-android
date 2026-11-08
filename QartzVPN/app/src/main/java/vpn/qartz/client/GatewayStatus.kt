@@ -3,10 +3,8 @@ package vpn.qartz.client
 import io.nekohasekai.libbox.CommandClient
 import io.nekohasekai.libbox.CommandClientHandler
 import io.nekohasekai.libbox.CommandClientOptions
-import io.nekohasekai.libbox.ConnectionEvents
+import io.nekohasekai.libbox.Connections
 import io.nekohasekai.libbox.Libbox
-import io.nekohasekai.libbox.LogIterator
-import io.nekohasekai.libbox.OutboundGroupItemIterator
 import io.nekohasekai.libbox.OutboundGroupIterator
 import io.nekohasekai.libbox.StatusMessage
 import io.nekohasekai.libbox.StringIterator
@@ -15,6 +13,9 @@ import kotlin.concurrent.thread
 /**
  * Reads the active member of the "proxy" urltest group from the running sing-box via a libbox
  * CommandClient, so the heartbeat can report WHICH gateway the mobile client is using (like desktop).
+ *
+ * Targets the amnezia-box libbox CommandClientHandler (Connected/Disconnected/ClearLogs/WriteLogs/
+ * WriteStatus/WriteGroups/Initialize+UpdateClashMode/WriteConnections).
  */
 object GatewayStatus : CommandClientHandler {
     private const val GROUP = "proxy"
@@ -23,9 +24,8 @@ object GatewayStatus : CommandClientHandler {
     var selectedTag: String = ""
         private set
 
-    // Per-route liveness from the urltest group (URLTestDelay > 0 = a working latency was measured).
-    // This is the client's "test-check": which routes are alive, how many backups exist. Reported
-    // in the heartbeat so the admin panel can show each user's options.
+    // Per-route liveness from the urltest group (URLTestDelay > 0 = a working latency was measured):
+    // the client's "test-check" — which routes are alive — reported in the heartbeat for the panel.
     @Volatile
     var routes: List<RouteStat> = emptyList()
         private set
@@ -39,7 +39,7 @@ object GatewayStatus : CommandClientHandler {
         thread(name = "gw-status") {
             runCatching {
                 val options = CommandClientOptions()
-                options.addCommand(Libbox.CommandGroup)
+                options.command = Libbox.CommandGroup
                 options.statusInterval = 1_000_000_000L // 1s, nanoseconds
                 val c = CommandClient(this, options)
                 client = c
@@ -56,7 +56,7 @@ object GatewayStatus : CommandClientHandler {
         if (c != null) thread { runCatching { c.disconnect() } }
     }
 
-    // ---- CommandClientHandler ----
+    // ---- CommandClientHandler (amnezia-box) ----
     override fun writeGroups(message: OutboundGroupIterator?) {
         val it = message ?: return
         while (it.hasNext()) {
@@ -76,12 +76,10 @@ object GatewayStatus : CommandClientHandler {
 
     override fun connected() {}
     override fun disconnected(message: String?) {}
-    override fun writeOutbounds(message: OutboundGroupItemIterator?) {}
-    override fun setDefaultLogLevel(level: Int) {}
     override fun clearLogs() {}
-    override fun writeLogs(messageList: LogIterator?) {}
+    override fun writeLogs(messageList: StringIterator?) {}
     override fun writeStatus(message: StatusMessage?) {}
     override fun initializeClashMode(modeList: StringIterator?, currentMode: String?) {}
     override fun updateClashMode(newMode: String?) {}
-    override fun writeConnectionEvents(events: ConnectionEvents?) {}
+    override fun writeConnections(message: Connections?) {}
 }

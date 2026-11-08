@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.PackageManager.NameNotFoundException
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
@@ -21,26 +22,19 @@ import android.system.OsConstants
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
-import io.nekohasekai.libbox.BridgeOptions
-import io.nekohasekai.libbox.BridgeSession
+import io.nekohasekai.libbox.BoxService
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
-import io.nekohasekai.libbox.ConnectionOwner
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.LocalDNSTransport
 import io.nekohasekai.libbox.NetworkInterfaceIterator
 import io.nekohasekai.libbox.Notification
-import io.nekohasekai.libbox.OverrideOptions
 import io.nekohasekai.libbox.PlatformInterface
-import io.nekohasekai.libbox.PlatformUser
-import io.nekohasekai.libbox.RoutePrefix
-import io.nekohasekai.libbox.ShellSession
 import io.nekohasekai.libbox.StringIterator
 import io.nekohasekai.libbox.SystemProxyStatus
 import io.nekohasekai.libbox.TunOptions
 import io.nekohasekai.libbox.WIFIState
-import io.nekohasekai.libbox.NeighborUpdateListener
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -72,20 +66,6 @@ class QartzVpnService :
             java.io.File(context.filesDir, "box.log")
     }
 
-    // Per-app routing: translate the saved mode + app set into sing-box override options.
-    private fun perAppOverride(): OverrideOptions {
-        val over = OverrideOptions()
-        val apps = ProfileStore.selectedApps(this)
-        if (apps.isEmpty()) return over
-        when (ProfileStore.routingMode(this)) {
-            ProfileStore.MODE_EXCLUDE ->
-                over.excludePackage = StringArray((apps - packageName).iterator())
-            ProfileStore.MODE_INCLUDE ->
-                over.includePackage = StringArray((apps + packageName).iterator())
-        }
-        return over
-    }
-
     // Force verbose logging into a file we can show in-app, whatever the pasted config says.
     private fun instrumentedConfig(raw: String): String = try {
         val obj = org.json.JSONObject(raw)
@@ -100,6 +80,7 @@ class QartzVpnService :
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var boxService: BoxService? = null
     private var commandServer: CommandServer? = null
     private var fileDescriptor: ParcelFileDescriptor? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -135,10 +116,7 @@ class QartzVpnService :
                 }
                 runCatching { logFile(this@QartzVpnService).writeText("") }
                 sbLog("[qartz] starting sing-box (xray=$xrayOn, alive=${XrayProcess.isAlive()})")
-                val server = CommandServer(this@QartzVpnService, this@QartzVpnService)
-                server.start()
-                commandServer = server
-                server.startOrReloadService(instrumentedConfig(config), perAppOverride())
+                startService(instrumentedConfig(config))
                 sbLog("[qartz] sing-box service started")
                 // Tunnel is up; only report "Connected" once traffic actually flows through it.
                 VpnState.set(VpnState.Stage.Connecting, "")
@@ -151,6 +129,31 @@ class QartzVpnService :
             }
         }
         return START_NOT_STICKY
+    }
+
+    /** amnezia-box libbox service model: NewService(config, platform) → Start; a CommandServer with
+     *  SetService exposes the status/command API. (Upstream's startOrReloadService + OverrideOptions
+     *  do not exist here — per-app routing lives in the config.) */
+    private fun startService(config: String) {
+        val bs = Libbox.newService(config, this)
+        val cs = Libbox.newCommandServer(this, 300)
+        cs.start()
+        bs.start()
+        cs.setService(bs)
+        boxService = bs
+        commandServer = cs
+    }
+
+    /** Rebuild the running service from the current ConfigStore (used after sub-over-tunnel swaps the
+     *  active routes, and on a reload command). TUN stays owned by us across the swap. */
+    private fun reloadService() {
+        val cfg = instrumentedConfig(ConfigStore.load(this))
+        runCatching { boxService?.close() }
+        val bs = Libbox.newService(cfg, this)
+        bs.start()
+        commandServer?.setService(bs)
+        boxService = bs
+        sbLog("[qartz] service reloaded onto current config")
     }
 
     private fun fail(message: String) {
@@ -189,9 +192,7 @@ class QartzVpnService :
                             VpnState.set(VpnState.Stage.Connecting, "нет ответа через туннель…")
                         }
                     } else if (!everConnected && System.currentTimeMillis() - startedAt > 45000L) {
-                        // No route ever came up — be honest instead of spinning forever. On a network
-                        // that blocks every transport we ship (e.g. Beeline before AWG), there is no
-                        // working VPN here, and the user needs to know that, not a fake "connecting…".
+                        // No route ever came up — be honest instead of spinning forever.
                         sbLog("[qartz] no route came up within 45s — reporting honest failure")
                         fail(getString(R.string.activate_no_route))
                         return@launch
@@ -218,7 +219,6 @@ class QartzVpnService :
                 setRequestProperty("Content-Type", "application/json")
             }
             val gateway = GatewayMap.name(this, GatewayStatus.selectedTag)
-            // Report the test-check: which routes are alive, so the panel shows each user's options.
             val routesArr = org.json.JSONArray()
             for (r in GatewayStatus.routes) {
                 val nm = GatewayMap.name(this, r.tag).ifBlank { r.tag }
@@ -239,11 +239,7 @@ class QartzVpnService :
         }
     }
 
-    // Pull the latest server list THROUGH the tunnel, once a route is confirmed up. The subscription
-    // host is often blocked on the open internet (the whole reason for the tunnel), so a direct fetch
-    // fails for many users; over the tunnel it is reached via the exit. Gated on a working probe — a
-    // refresh is pointless without a live route, so this never runs then. The fresh list is saved for
-    // the next (re)connect; the current session is left undisturbed.
+    // Pull the latest server list THROUGH the tunnel, once a route is confirmed up.
     private fun refreshSubOverTunnel() {
         val sub = ProfileStore.subUrl(this)
         if (sub.isBlank()) return // manual-config user (pasted links/JSON) — nothing to refresh
@@ -263,17 +259,10 @@ class QartzVpnService :
                     if (text.trim() != before) {
                         ProfileStore.saveLinks(this@QartzVpnService, text)
                         sbLog("sub refreshed over tunnel (${text.length} bytes) — switching to per-user routes")
-                        // We bootstrapped on the shared activation routes; now that the user's own
-                        // servers are in hand, rebuild the runtime config and hot-reload onto them so
-                        // the activation account stops carrying traffic (its egress will later be
-                        // limited to the control plane). If assembly fails, stay on what works.
+                        // Rebuild the runtime config from the user's own routes and hot-reload onto them.
                         runCatching {
                             if (ConfigAssembler.assemble(this@QartzVpnService) is ConfigAssembler.Result.Ok) {
-                                commandServer?.startOrReloadService(
-                                    instrumentedConfig(ConfigStore.load(this@QartzVpnService)),
-                                    perAppOverride(),
-                                )
-                                sbLog("[qartz] reloaded onto per-user routes")
+                                reloadService()
                             } else {
                                 sbLog("[qartz] per-user config assemble failed; staying on activation routes")
                             }
@@ -282,8 +271,7 @@ class QartzVpnService :
                         sbLog("sub refreshed over tunnel — unchanged, staying put")
                     }
                 }
-                // Also self-update the shared activation / test profile (bootstrap routes) over the
-                // tunnel, so the baked-in profile never goes stale.
+                // Also self-update the shared activation / test profile (bootstrap routes) over the tunnel.
                 runCatching {
                     val u = URL(sub)
                     val base = "${u.protocol}://${u.authority}"
@@ -319,7 +307,7 @@ class QartzVpnService :
     }
 
     private fun stopVpn() {
-        if (!running && commandServer == null) {
+        if (!running && boxService == null && commandServer == null) {
             stopSelfCompat()
             return
         }
@@ -328,7 +316,8 @@ class QartzVpnService :
         monitorJob = null
         scope.launch {
             runCatching { GatewayStatus.stop() }
-            runCatching { commandServer?.closeService() }
+            runCatching { boxService?.close() }
+            boxService = null
             runCatching { commandServer?.close() }
             commandServer = null
             runCatching { XrayProcess.stop() }
@@ -357,6 +346,8 @@ class QartzVpnService :
 
     override fun onDestroy() {
         runCatching { GatewayStatus.stop() }
+        runCatching { boxService?.close() }
+        runCatching { commandServer?.close() }
         runCatching { XrayProcess.stop() }
         runCatching { fileDescriptor?.close() }
         super.onDestroy()
@@ -400,79 +391,52 @@ class QartzVpnService :
 
         val builder = Builder()
             .setSession("QartzVPN")
-            .setMtu(options.mtu)
+            .setMtu(options.getMTU())
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
         }
 
-        val inet4Address = options.inet4Address
+        val inet4Address = options.getInet4Address()
         while (inet4Address.hasNext()) {
             val address = inet4Address.next()
             builder.addAddress(address.address(), address.prefix())
         }
-
-        val inet6Address = options.inet6Address
+        val inet6Address = options.getInet6Address()
         while (inet6Address.hasNext()) {
             val address = inet6Address.next()
             builder.addAddress(address.address(), address.prefix())
         }
 
-        if (options.autoRoute) {
-            if (options.dnsMode.value != Libbox.DNSModeDisabled) {
-                val dnsServerAddress = options.dnsServerAddress
-                while (dnsServerAddress.hasNext()) {
-                    builder.addDnsServer(dnsServerAddress.next())
-                }
+        if (options.getAutoRoute()) {
+            runCatching {
+                val dns = options.getDNSServerAddress()
+                if (dns != null && dns.value.isNotEmpty()) builder.addDnsServer(dns.value)
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val inet4RouteAddress = options.inet4RouteAddress
-                if (inet4RouteAddress.hasNext()) {
-                    while (inet4RouteAddress.hasNext()) {
-                        builder.addRoute(inet4RouteAddress.next().toIpPrefix())
-                    }
-                } else if (options.inet4Address.hasNext()) {
+                val inet4Route = options.getInet4RouteAddress()
+                if (inet4Route.hasNext()) {
+                    while (inet4Route.hasNext()) builder.addRoute(inet4Route.next().toIpPrefix())
+                } else {
                     builder.addRoute("0.0.0.0", 0)
                 }
-
-                val inet6RouteAddress = options.inet6RouteAddress
-                if (inet6RouteAddress.hasNext()) {
-                    while (inet6RouteAddress.hasNext()) {
-                        builder.addRoute(inet6RouteAddress.next().toIpPrefix())
-                    }
-                } else if (options.inet6Address.hasNext()) {
+                val inet6Route = options.getInet6RouteAddress()
+                if (inet6Route.hasNext()) {
+                    while (inet6Route.hasNext()) builder.addRoute(inet6Route.next().toIpPrefix())
+                } else {
                     builder.addRoute("::", 0)
                 }
-
-                val inet4RouteExcludeAddress = options.inet4RouteExcludeAddress
-                while (inet4RouteExcludeAddress.hasNext()) {
-                    builder.excludeRoute(inet4RouteExcludeAddress.next().toIpPrefix())
-                }
-
-                val inet6RouteExcludeAddress = options.inet6RouteExcludeAddress
-                while (inet6RouteExcludeAddress.hasNext()) {
-                    builder.excludeRoute(inet6RouteExcludeAddress.next().toIpPrefix())
-                }
+                val inet4Exclude = options.getInet4RouteExcludeAddress()
+                while (inet4Exclude.hasNext()) builder.excludeRoute(inet4Exclude.next().toIpPrefix())
+                val inet6Exclude = options.getInet6RouteExcludeAddress()
+                while (inet6Exclude.hasNext()) builder.excludeRoute(inet6Exclude.next().toIpPrefix())
             } else {
-                val inet4RouteAddress = options.inet4RouteRange
-                if (inet4RouteAddress.hasNext()) {
-                    while (inet4RouteAddress.hasNext()) {
-                        val address = inet4RouteAddress.next()
-                        builder.addRoute(address.address(), address.prefix())
-                    }
-                }
-
-                val inet6RouteAddress = options.inet6RouteRange
-                if (inet6RouteAddress.hasNext()) {
-                    while (inet6RouteAddress.hasNext()) {
-                        val address = inet6RouteAddress.next()
-                        builder.addRoute(address.address(), address.prefix())
-                    }
-                }
+                builder.addRoute("0.0.0.0", 0)
+                builder.addRoute("::", 0)
             }
 
-            val includePackage = options.includePackage
+            val includePackage = options.getIncludePackage()
             while (includePackage.hasNext()) {
                 try {
                     builder.addAllowedApplication(includePackage.next())
@@ -480,8 +444,7 @@ class QartzVpnService :
                     Log.e(TAG, "addAllowedApplication", e)
                 }
             }
-
-            val excludePackage = options.excludePackage
+            val excludePackage = options.getExcludePackage()
             while (excludePackage.hasNext()) {
                 try {
                     builder.addDisallowedApplication(excludePackage.next())
@@ -497,7 +460,8 @@ class QartzVpnService :
     }
 
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    private fun RoutePrefix.toIpPrefix(): IpPrefix = IpPrefix(InetAddress.getByName(address()), prefix())
+    private fun io.nekohasekai.libbox.RoutePrefix.toIpPrefix(): IpPrefix =
+        IpPrefix(InetAddress.getByName(address()), prefix())
 
     override fun autoDetectInterfaceControl(fd: Int) {
         protect(fd)
@@ -505,14 +469,56 @@ class QartzVpnService :
 
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
+    override fun localDNSTransport(): LocalDNSTransport? = null
+
+    override fun writeLog(message: String?) {
+        if (!message.isNullOrBlank()) sbLog("[core] $message")
+    }
+
+    override fun useProcFS(): Boolean = false
+
+    // ---------------- PlatformInterface: connection owner ----------------
+
+    override fun findConnectionOwner(
+        ipProtocol: Int,
+        sourceAddress: String?,
+        sourcePort: Int,
+        destinationAddress: String?,
+        destinationPort: Int,
+    ): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) error("android: unsupported below API 29")
+        val uid = App.connectivity.getConnectionOwnerUid(
+            ipProtocol,
+            InetSocketAddress(sourceAddress, sourcePort),
+            InetSocketAddress(destinationAddress, destinationPort),
+        )
+        if (uid == Process.INVALID_UID) error("android: connection owner not found")
+        return uid
+    }
+
+    override fun packageNameByUid(uid: Int): String {
+        val packages = packageManager.getPackagesForUid(uid)
+        return packages?.firstOrNull() ?: error("android: package not found for uid $uid")
+    }
+
+    override fun uIDByPackageName(packageName: String?): Int {
+        val name = packageName ?: error("android: empty package name")
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageUid(name, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageUid(name, 0)
+            }
+        } catch (e: Exception) {
+            error("android: package not found: $name")
+        }
+    }
+
     // ---------------- PlatformInterface: network info ----------------
 
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
         val cm = App.connectivity
-        // Track the underlying PHYSICAL network, never the VPN tun. A plain
-        // registerDefaultNetworkCallback() reports our own tun once it is up, so sing-box would
-        // bind proxy sockets back into the tunnel (loop -> "connected but no traffic").
-        // NET_CAPABILITY_NOT_VPN excludes the tun and leaves only wifi/cellular/ethernet.
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
@@ -583,90 +589,25 @@ class QartzVpnService :
         return InterfaceArray(interfaces.iterator())
     }
 
-    override fun findConnectionOwner(
-        ipProtocol: Int,
-        sourceAddress: String,
-        sourcePort: Int,
-        destinationAddress: String,
-        destinationPort: Int,
-    ): ConnectionOwner {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) error("android: unsupported below API 29")
-        val uid = App.connectivity.getConnectionOwnerUid(
-            ipProtocol,
-            InetSocketAddress(sourceAddress, sourcePort),
-            InetSocketAddress(destinationAddress, destinationPort),
-        )
-        if (uid == Process.INVALID_UID) error("android: connection owner not found")
-        val owner = ConnectionOwner().also { it.userId = uid }
-        val packages = packageManager.getPackagesForUid(uid)
-        owner.userName = packages?.firstOrNull() ?: ""
-        owner.setAndroidPackageNames(StringArray((packages?.toList() ?: emptyList()).iterator()))
-        return owner
-    }
-
-    override fun readWIFIState(): WIFIState? = null
-
     override fun underNetworkExtension(): Boolean = false
 
     override fun includeAllNetworks(): Boolean = false
 
+    override fun readWIFIState(): WIFIState? = null
+
+    override fun systemCertificates(): StringIterator = StringArray(emptyList<String>().iterator())
+
     override fun clearDNSCache() {}
 
-    override fun localDNSTransport(): LocalDNSTransport? = null
+    override fun sendNotification(notification: Notification?) {}
 
-    // ---------------- PlatformInterface: notifications ----------------
-
-    override fun sendNotification(notification: Notification) {}
-
-    override fun cancelNotification(identifier: String, typeID: Int) {}
-
-    // ---------------- PlatformInterface: unused advanced features ----------------
-
-    override fun startNeighborMonitor(listener: NeighborUpdateListener) {}
-
-    override fun closeNeighborMonitor(listener: NeighborUpdateListener) {}
-
-    override fun registerMyInterface(name: String) {}
-
-    override fun usePlatformShell(): Boolean = false
-
-    override fun checkPlatformShell() {}
-
-    override fun openShellSession(
-        user: PlatformUser?,
-        command: String?,
-        environ: StringIterator?,
-        term: String?,
-        rows: Int,
-        cols: Int,
-    ): ShellSession = error("not supported")
-
-    override fun lookupUser(username: String?): PlatformUser = error("not supported")
-
-    override fun lookupSFTPServer(): String = error("not supported")
-
-    override fun readSystemSSHHostKey(): String = error("not supported")
-
-    override fun tailscaleHostname(): String = "${Build.MANUFACTURER} ${Build.MODEL}"
-
-    override fun usePlatformBridge(): Boolean = false
-
-    override fun createBridge(options: BridgeOptions?): BridgeSession = error("not supported")
-
-    // ---------------- CommandServerHandler ----------------
-
-    override fun serviceStop() {
-        stopVpn()
-    }
+    // ---------------- CommandServerHandler (amnezia-box) ----------------
 
     override fun serviceReload() {
-        scope.launch {
-            runCatching {
-                val config = ConfigStore.load(this@QartzVpnService)
-                commandServer?.startOrReloadService(config, OverrideOptions())
-            }
-        }
+        scope.launch { runCatching { reloadService() } }
     }
+
+    override fun postServiceClose() {}
 
     override fun getSystemProxyStatus(): SystemProxyStatus = SystemProxyStatus().apply {
         available = false
@@ -674,14 +615,6 @@ class QartzVpnService :
     }
 
     override fun setSystemProxyEnabled(isEnabled: Boolean) {}
-
-    override fun triggerNativeCrash() {}
-
-    override fun writeDebugMessage(message: String?) {
-        Log.d(TAG, message ?: "")
-    }
-
-    override fun connectSSHAgent(): Int = -1
 
     // ---------------- iterator helpers (gomobile <-> Java) ----------------
 

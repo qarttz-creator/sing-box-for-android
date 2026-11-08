@@ -20,10 +20,10 @@ on:
       - ".github/workflows/android.yml"
 
 env:
-  # Upstream sing-box libbox — the app's core integration (PlatformInterface / CommandServer) targets
-  # this 1.14.x API. The amnezia-box fork's libbox is an older, incompatible API, so a straight
-  # core-swap does not compile; AWG needs a dedicated integration, tracked separately.
-  SINGBOX_REF: v1.14.4
+  # Core is the Amnezia fork of sing-box (adds the `awg` endpoint). The app's libbox integration
+  # (App / GatewayStatus / QartzVpnService) is written against THIS fork's libbox API.
+  AWG_REPO: https://github.com/amnezia-vpn/amnezia-box
+  AWG_REF: master
   XRAY_REF: v1.250911.0
   GO_VERSION: "1.25.5"
   NDK_VERSION: "28.0.13004108"
@@ -63,22 +63,23 @@ jobs:
         uses: actions/cache@v4
         with:
           path: core-out/libbox.aar
-          key: libbox-${{ env.SINGBOX_REF }}-ndk${{ env.NDK_VERSION }}-go${{ env.GO_VERSION }}
+          key: libbox-awg-${{ env.AWG_REF }}-ndk${{ env.NDK_VERSION }}-go${{ env.GO_VERSION }}-v2
 
-      - name: Build libbox.aar (cache miss)
+      - name: Build libbox.aar from amnezia-box (with_awg, cache miss)
         if: steps.libbox-cache.outputs.cache-hit != 'true'
         run: |
           # NDK is only needed to compile the native core; skip it on cache hits.
-          sdkmanager --install "ndk;${NDK_VERSION}"
+          echo "y" | sdkmanager --install "ndk;${NDK_VERSION}"
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/${NDK_VERSION}"
-          git clone --branch "$SINGBOX_REF" --depth 1 \
-            https://github.com/SagerNet/sing-box sing-box-core
-          cd sing-box-core
+          git clone --branch "$AWG_REF" --depth 1 "$AWG_REPO" amnezia-box
+          test -f amnezia-box/option/awg.go && echo "AWG source present"
+          cd amnezia-box
           make lib_install
           export PATH="$PATH:$(go env GOPATH)/bin"
-          make lib_android
+          go run ./cmd/internal/build_libbox -target android -tags with_awg
           mkdir -p "$GITHUB_WORKSPACE/core-out"
           cp libbox.aar "$GITHUB_WORKSPACE/core-out/libbox.aar"
+          ls -lh "$GITHUB_WORKSPACE/core-out/libbox.aar"
 
       - name: Place core into app
         run: |

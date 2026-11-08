@@ -39,7 +39,7 @@ object LinkParser {
             when (uri.scheme?.lowercase()) {
                 "vless" -> vless(uri, index)
                 "hysteria2", "hy2" -> hysteria2(uri, index)
-                "awg", "amneziawg" -> awg(line, index)
+                "awg", "amneziawg", "vpn" -> awg(line, index)
                 else -> null
             }
         } catch (e: Exception) {

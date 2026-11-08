@@ -54,6 +54,15 @@ object AwgConfig {
             iface[s]?.takeIf { it.isNotEmpty() }?.let { ep.put(s, it) }
         iface["headerprotectionkey"]?.takeIf { it.isNotEmpty() }?.let { ep.put("header_protection_key", it) }
         iface["contentpaddingaddition"]?.takeIf { it.isNotEmpty() }?.let { ep.put("content_padding_addition", it) }
+        // AmneziaWG 2.0 timers/behaviour (strings/ranges per the fork schema) — include them so the
+        // endpoint matches exactly what the stock Amnezia client sends.
+        iface["rekeyaftertime"]?.takeIf { it.isNotEmpty() }?.let { ep.put("rekey_after_time", it) }
+        iface["rekeytimeout"]?.takeIf { it.isNotEmpty() }?.let { ep.put("rekey_timeout", it) }
+        iface["rejectaftertime"]?.takeIf { it.isNotEmpty() }?.let { ep.put("reject_after_time", it) }
+        iface["keepalivetimeout"]?.takeIf { it.isNotEmpty() }?.let { ep.put("keepalive_timeout", it) }
+        iface["maxhandshakeattempts"]?.takeIf { it.isNotEmpty() }?.let { ep.put("max_handshake_attempts", it) }
+        if (boolOn(iface["randomtrailers"])) ep.put("random_trailers", true)
+        if (boolOn(iface["disablecookies"])) ep.put("disable_cookies", true)
 
         val peerObj = JSONObject()
             .put("address", host)
@@ -65,6 +74,9 @@ object AwgConfig {
 
         return ep.put("peers", JSONArray().put(peerObj))
     }
+
+    private fun boolOn(v: String?): Boolean =
+        v?.trim()?.lowercase() in setOf("on", "true", "1", "yes")
 
     private fun cidrList(v: String): JSONArray {
         val arr = JSONArray()

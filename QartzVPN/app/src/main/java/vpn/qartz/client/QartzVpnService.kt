@@ -574,9 +574,9 @@ class QartzVpnService :
                 // Addresses MUST be clean CIDR — the core parses each with netip.MustParsePrefix
                 // (panics on a scope zone like fe80::1%wlan0), so strip the zone and skip bad ones.
                 boxInterface.dnsServer =
-                    StringArray(linkProperties.dnsServers.mapNotNull { it.hostAddress?.substringBefore('%') }.iterator())
+                    StringArray(linkProperties.dnsServers.mapNotNull { it.hostAddress?.substringBefore('%') })
                 boxInterface.addresses =
-                    StringArray(jni.interfaceAddresses.mapNotNull { it.toPrefix() }.iterator())
+                    StringArray(jni.interfaceAddresses.mapNotNull { it.toPrefix() })
                 var dumpFlags = 0
                 if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
                     dumpFlags = OsConstants.IFF_UP or OsConstants.IFF_RUNNING
@@ -602,7 +602,7 @@ class QartzVpnService :
 
     override fun readWIFIState(): WIFIState? = null
 
-    override fun systemCertificates(): StringIterator = StringArray(emptyList<String>().iterator())
+    override fun systemCertificates(): StringIterator = StringArray(emptyList())
 
     override fun clearDNSCache() {}
 
@@ -625,8 +625,12 @@ class QartzVpnService :
 
     // ---------------- iterator helpers (gomobile <-> Java) ----------------
 
-    private class StringArray(private val iterator: Iterator<String>) : StringIterator {
-        override fun len(): Int = 0
+    // len() MUST return the real count: the core reads addresses.Len() when enumerating interfaces,
+    // and a 0 there means "this interface has no addresses" → it's dropped → "no available network
+    // interface" even though getInterfaces returned it. So back it with a List, not a bare Iterator.
+    private class StringArray(private val items: List<String>) : StringIterator {
+        private val iterator = items.iterator()
+        override fun len(): Int = items.size
         override fun hasNext(): Boolean = iterator.hasNext()
         override fun next(): String = iterator.next()
     }

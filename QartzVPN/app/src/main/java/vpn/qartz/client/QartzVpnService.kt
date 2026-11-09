@@ -534,6 +534,19 @@ class QartzVpnService :
         }
         networkCallback = callback
         cm.registerNetworkCallback(request, callback)
+        // onAvailable is delivered asynchronously, but an AWG endpoint binds its socket to the
+        // auto-detected default interface eagerly at startup — if the default isn't known yet the
+        // bind fails with "no available network interface" and the whole start aborts (vless/hysteria
+        // dial lazily, after the monitor has warmed, so they're unaffected). Seed the current
+        // underlying (non-VPN) default synchronously so the bind has it in time.
+        runCatching {
+            cm.allNetworks.firstOrNull { n ->
+                cm.getNetworkCapabilities(n)?.let {
+                    it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                        it.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                } == true
+            }?.let { pushDefaultInterface(listener, it) }
+        }
     }
 
     override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {

@@ -535,17 +535,34 @@ class QartzVpnService :
         networkCallback = callback
         cm.registerNetworkCallback(request, callback)
         // onAvailable is delivered asynchronously, but an AWG endpoint binds its socket to the
-        // auto-detected default interface eagerly at startup — if the default isn't known yet the
+        // auto-detected default interface eagerly during start — if the default isn't known yet the
         // bind fails with "no available network interface" and the whole start aborts (vless/hysteria
-        // dial lazily, after the monitor has warmed, so they're unaffected). Seed the current
-        // underlying (non-VPN) default synchronously so the bind has it in time.
+        // dial lazily, after the monitor has warmed, so they're unaffected). So push the current
+        // underlying (non-VPN) default synchronously here. getLinkProperties/getByName are often
+        // transiently null this early, so retry (mirrors upstream DefaultNetworkMonitor) — a single
+        // attempt silently bails and leaves the core with no interface.
         runCatching {
-            cm.allNetworks.firstOrNull { n ->
+            val active = cm.activeNetwork
+            val underlying = if (active != null &&
+                cm.getNetworkCapabilities(active)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true
+            ) active else cm.allNetworks.firstOrNull { n ->
                 cm.getNetworkCapabilities(n)?.let {
                     it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                         it.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                 } == true
-            }?.let { pushDefaultInterface(listener, it) }
+            }
+            if (underlying != null) {
+                for (i in 0 until 10) {
+                    val name = cm.getLinkProperties(underlying)?.interfaceName
+                    val index = name?.let { runCatching { JavaNetworkInterface.getByName(it)?.index }.getOrNull() }
+                    if (name != null && index != null) {
+                        listener.updateDefaultInterface(name, index, false, false)
+                        sbLog("[qartz] seeded default interface: $name/$index")
+                        break
+                    }
+                    Thread.sleep(100)
+                }
+            }
         }
     }
 

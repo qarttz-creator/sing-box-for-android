@@ -11,7 +11,11 @@ import org.json.JSONObject
 object ConfigBuilder {
 
     private const val GROUP = "proxy"
-    private const val TEST_URL = "https://www.gstatic.com/generate_204"
+    // Проверочный URL urltest'а бьём по IP, НЕ по домену: AWG везёт только IP-пакеты и домен цели
+    // резолвит клиентски через ещё не поднятый туннель → валится «cannot marshal DNS message», и
+    // awg-маршруты числятся мёртвыми. 1.1.1.1/cdn-cgi/trace отдаёт 200 сразу, без редиректа на домен
+    // (серт Cloudflare покрывает 1.1.1.1), поэтому резолв не нужен ни одному члену группы.
+    private const val TEST_URL = "https://1.1.1.1/cdn-cgi/trace"
 
     private val LAN_RANGES = listOf(
         "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/4",
@@ -55,11 +59,6 @@ object ConfigBuilder {
         val awgDirectIps = mutableListOf<String>()
         val awgDirectDomains = mutableListOf<String>()
         for (s in awgServers) {
-            // AWG везёт только IP-пакеты, поэтому домен цели (в т.ч. URL healthcheck'а urltest'а)
-            // резолвится клиентски. Без явного резолвера endpoint пытается своим внутренним стеком
-            // без DNS-сервера и валит проверку с "cannot marshal DNS message" — маршрут живой, а
-            // тестер считает его мёртвым. Привязываем резолв к нашему dns-direct (прямой DoH).
-            s.outbound.put("domain_resolver", "dns-direct")
             endpoints.put(s.outbound)
             groupMembers.put(s.tag)
             if (s.host.isNotEmpty()) {

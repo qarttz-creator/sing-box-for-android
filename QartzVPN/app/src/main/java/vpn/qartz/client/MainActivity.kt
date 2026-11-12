@@ -37,6 +37,12 @@ class MainActivity : AppCompatActivity() {
     private val notifPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    // Periodic UI refresh of the active-route line while the screen is visible.
+    private val ui = android.os.Handler(android.os.Looper.getMainLooper())
+    private val routeTick = object : Runnable {
+        override fun run() { updateRouteInfo(); ui.postDelayed(this, 2000) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -64,10 +70,11 @@ class MainActivity : AppCompatActivity() {
 
         binding.updateButton.setOnClickListener { checkForUpdate(manual = true) }
 
-        // Hidden maintenance menu — long-press the title. End users never need it.
+        // Settings gear (visible) opens the menu; long-press on the title still works as a fallback.
+        binding.settingsButton.setOnClickListener { showDevMenu() }
         binding.titleText.setOnLongClickListener { showDevMenu(); true }
 
-        VpnState.stage.observe(this) { stage -> render(stage) }
+        VpnState.stage.observe(this) { stage -> render(stage); updateRouteInfo() }
         VpnState.message.observe(this) { msg -> if (!msg.isNullOrBlank()) toast(msg) }
 
         requestNotificationPermission()
@@ -93,6 +100,41 @@ class MainActivity : AppCompatActivity() {
         binding.connectButton.setImageResource(
             if (stage == VpnState.Stage.Connected) R.drawable.power_active else R.drawable.power_idle,
         )
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ui.post(routeTick)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        ui.removeCallbacks(routeTick)
+    }
+
+    /** Show which gateway/protocol is currently active and how many routes are alive — read live
+     *  from GatewayStatus (the running sing-box urltest group). On desktop this is visible; now on
+     *  Android too. */
+    private fun updateRouteInfo() {
+        val connected = VpnState.stage.value == VpnState.Stage.Connected
+        val tag = GatewayStatus.selectedTag
+        if (!connected || tag.isBlank()) {
+            binding.routeInfo.visibility = android.view.View.GONE
+            return
+        }
+        val gw = GatewayMap.name(this, tag).ifBlank { tag }
+        val proto = when (tag.firstOrNull()) {
+            'x' -> "vless"
+            's' -> "hysteria2"
+            'a' -> "awg"
+            else -> ""
+        }
+        val routes = GatewayStatus.routes
+        val up = routes.count { it.up }
+        val head = if (proto.isNotEmpty()) "$gw · $proto" else gw
+        binding.routeInfo.text =
+            if (routes.isNotEmpty()) "через $head\nживых маршрутов: $up/${routes.size}" else "через $head"
+        binding.routeInfo.visibility = android.view.View.VISIBLE
     }
 
     private fun connect() {

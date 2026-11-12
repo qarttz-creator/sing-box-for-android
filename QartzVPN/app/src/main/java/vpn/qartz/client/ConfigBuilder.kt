@@ -55,6 +55,11 @@ object ConfigBuilder {
         val awgDirectIps = mutableListOf<String>()
         val awgDirectDomains = mutableListOf<String>()
         for (s in awgServers) {
+            // AWG везёт только IP-пакеты, поэтому домен цели (в т.ч. URL healthcheck'а urltest'а)
+            // резолвится клиентски. Без явного резолвера endpoint пытается своим внутренним стеком
+            // без DNS-сервера и валит проверку с "cannot marshal DNS message" — маршрут живой, а
+            // тестер считает его мёртвым. Привязываем резолв к нашему dns-direct (прямой DoH).
+            s.outbound.put("domain_resolver", "dns-direct")
             endpoints.put(s.outbound)
             groupMembers.put(s.tag)
             if (s.host.isNotEmpty()) {

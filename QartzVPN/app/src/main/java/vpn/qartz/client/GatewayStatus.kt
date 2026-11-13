@@ -32,6 +32,14 @@ object GatewayStatus : CommandClientHandler {
 
     data class RouteStat(val tag: String, val up: Boolean)
 
+    // Гистерезис здоровья: urltest гоняет все маршруты ОДНИМ одновременным проходом каждые 30с с
+    // фиксированным таймаутом. На Wi-Fi 9 проб конкурируют за канал (+ AWG добавляет RTT на хендшейк),
+    // часть не укладывается → getURLTestDelay()==0 в этом цикле → ложный «мёртв», отсюда мигание 5–6/9.
+    // Поэтому считаем маршрут живым, если последняя проба прошла ИЛИ он был жив недавно (≈5 интервалов).
+    // Это сглаживает ТОЛЬКО отображаемое/репортируемое здоровье; выбор аутбаунда urltest'ом не трогаем.
+    private const val UP_HOLD_MS = 150_000L
+    private val lastUpAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     private var client: CommandClient? = null
 
     fun start() {
@@ -53,6 +61,7 @@ object GatewayStatus : CommandClientHandler {
         client = null
         selectedTag = ""
         routes = emptyList()
+        lastUpAt.clear()
         if (c != null) thread { runCatching { c.disconnect() } }
     }
 
@@ -63,11 +72,16 @@ object GatewayStatus : CommandClientHandler {
             val g = it.next()
             if (g.tag == GROUP) {
                 selectedTag = g.selected ?: ""
+                val now = System.currentTimeMillis()
                 val list = mutableListOf<RouteStat>()
                 val items = g.getItems()
                 while (items.hasNext()) {
                     val item = items.next() ?: continue
-                    list.add(RouteStat(item.tag ?: "", item.getURLTestDelay() > 0))
+                    val tag = item.tag ?: ""
+                    val rawUp = item.getURLTestDelay() > 0
+                    if (rawUp) lastUpAt[tag] = now
+                    val up = rawUp || (lastUpAt[tag]?.let { now - it < UP_HOLD_MS } ?: false)
+                    list.add(RouteStat(tag, up))
                 }
                 routes = list
             }

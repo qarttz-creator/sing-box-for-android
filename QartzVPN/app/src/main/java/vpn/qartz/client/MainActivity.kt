@@ -201,12 +201,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun promptUpdate(r: Updater.Remote) {
-        AlertDialog.Builder(this)
+        val forced = Updater.isForced(r)
+        var msg = getString(R.string.upd_available_msg, r.name, BuildConfig.VERSION_NAME)
+        if (r.notes.isNotBlank()) msg += "\n\n" + getString(R.string.upd_whatsnew) + "\n" + r.notes
+        if (forced) msg += "\n\n" + getString(R.string.upd_required)
+        // Обязательное обновление (critical / версия ниже min_supported) — без «Позже», диалог не закрыть.
+        val b = AlertDialog.Builder(this)
+            .setCancelable(!forced)
             .setTitle(R.string.upd_available_title)
-            .setMessage(getString(R.string.upd_available_msg, r.name, BuildConfig.VERSION_NAME))
+            .setMessage(msg)
             .setPositiveButton(R.string.upd_update) { _, _ -> startUpdate(r) }
-            .setNegativeButton(R.string.upd_later, null)
-            .show()
+        if (!forced) b.setNegativeButton(R.string.upd_later, null)
+        b.show()
     }
 
     private fun startUpdate(r: Updater.Remote) {

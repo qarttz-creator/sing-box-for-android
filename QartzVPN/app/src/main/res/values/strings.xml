@@ -58,7 +58,9 @@
     <string name="upd_check_failed">Не удалось проверить обновление</string>
     <string name="upd_up_to_date">Установлена последняя версия (%s)</string>
     <string name="upd_available_title">Доступно обновление</string>
-    <string name="upd_available_msg">Новая версия: %1$s\nТекущая: %2$s\n\nОбновить сейчас?</string>
+    <string name="upd_available_msg">Новая версия: %1$s\nТекущая: %2$s</string>
+    <string name="upd_whatsnew">Что нового:</string>
+    <string name="upd_required">Это обязательное обновление — без него подключение может не работать.</string>
     <string name="upd_update">Обновить</string>
     <string name="upd_later">Позже</string>
     <string name="upd_perm_title">Нужно разрешение</string>

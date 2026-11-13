@@ -14,6 +14,14 @@ on:
         description: "URL /activation контрол-плейна, из которого запечь стартовые маршруты в APK. Пусто → берётся переменная репозитория ACTIVATION_URL, иначе seed из репозитория."
         type: string
         default: ""
+      critical:
+        description: "Обязательное обновление: у клиента не будет «Позже» (тап по «Обновить» обязателен)."
+        type: boolean
+        default: false
+      min_supported:
+        description: "Минимальный versionCode. Клиенты ниже обновляются принудительно. Пусто → без принуждения."
+        type: string
+        default: ""
   push:
     paths:
       - "QartzVPN/**"
@@ -185,14 +193,26 @@ jobs:
           fi
 
       - name: Write version.json
+        env:
+          UPD_CRITICAL: ${{ github.event.inputs.critical }}
+          UPD_MIN_SUPPORTED: ${{ github.event.inputs.min_supported }}
         run: |
-          cat > QartzVPN/app/build/outputs/apk/release/version.json <<JSON
-          {
-            "versionCode": ${{ github.run_number }},
-            "versionName": "1.0.${{ github.run_number }}",
-            "url": "https://github.com/qarttz-creator/sing-box-for-android/releases/download/${{ steps.chan.outputs.tag }}/app-universal-release.apk"
-          }
-          JSON
+          # notes = верхняя секция CHANGELOG.md (единый источник «что нового»).
+          NOTES=""
+          [ -f CHANGELOG.md ] && NOTES=$(awk 'f&&/^## /{exit} /^## /{f=1;next} f' CHANGELOG.md)
+          CRIT=false; [ "$UPD_CRITICAL" = "true" ] && CRIT=true
+          MIN=0; [ -n "$UPD_MIN_SUPPORTED" ] && MIN=$UPD_MIN_SUPPORTED
+          URL="https://github.com/qarttz-creator/sing-box-for-android/releases/download/${{ steps.chan.outputs.tag }}/app-universal-release.apk"
+          jq -n \
+            --argjson code ${{ github.run_number }} \
+            --arg name "1.0.${{ github.run_number }}" \
+            --arg url "$URL" \
+            --arg notes "$NOTES" \
+            --argjson critical $CRIT \
+            --argjson min $MIN \
+            '{versionCode:$code, versionName:$name, url:$url, notes:$notes, critical:$critical, min_supported:$min}' \
+            > QartzVPN/app/build/outputs/apk/release/version.json
+          cat QartzVPN/app/build/outputs/apk/release/version.json
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4

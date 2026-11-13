@@ -18,7 +18,14 @@ object Updater {
     private const val VERSION_URL =
         "https://github.com/qarttz-creator/sing-box-for-android/releases/download/android-latest/version.json"
 
-    data class Remote(val code: Int, val name: String, val url: String)
+    data class Remote(
+        val code: Int,
+        val name: String,
+        val url: String,
+        val notes: String,
+        val critical: Boolean,
+        val minSupported: Int,
+    )
 
     /** Blocking network call — run on a background thread. Returns null on any error. */
     fun fetchLatest(): Remote? = try {
@@ -30,13 +37,29 @@ object Updater {
         val code = conn.responseCode
         val text = conn.inputStream.bufferedReader().use { it.readText() }
         conn.disconnect()
-        if (code !in 200..299) null
-        else JSONObject(text).let { Remote(it.getInt("versionCode"), it.optString("versionName"), it.getString("url")) }
+        if (code !in 200..299) {
+            null
+        } else {
+            JSONObject(text).let {
+                Remote(
+                    it.getInt("versionCode"),
+                    it.optString("versionName"),
+                    it.getString("url"),
+                    it.optString("notes", ""),
+                    it.optBoolean("critical", false),
+                    it.optInt("min_supported", 0),
+                )
+            }
+        }
     } catch (e: Exception) {
         null
     }
 
     fun isNewer(r: Remote): Boolean = r.code > BuildConfig.VERSION_CODE
+
+    /** Обновление обязательно: critical, либо текущий код ниже min_supported (ретайрим старые сборки). */
+    fun isForced(r: Remote): Boolean =
+        r.critical || (r.minSupported > 0 && BuildConfig.VERSION_CODE < r.minSupported)
 
     /** Download the APK to the cache dir. Blocking. onProgress(percent) with -1 when size unknown. */
     fun download(ctx: Context, r: Remote, onProgress: (Int) -> Unit): File? = try {

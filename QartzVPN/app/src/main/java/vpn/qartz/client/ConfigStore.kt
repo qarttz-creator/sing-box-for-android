@@ -7,10 +7,11 @@ import java.io.File
 object ConfigStore {
     private fun file(context: Context) = File(context.filesDir, "config.json")
 
+    // config.json содержит адреса шлюзов → шифруем на диске (AtRest), читаем прозрачно.
     fun load(context: Context): String =
-        file(context).let { if (it.exists()) it.readText() else "" }
+        file(context).let { if (it.exists()) AtRest.dec(it.readText()) else "" }
 
     fun save(context: Context, content: String) {
-        file(context).writeText(content)
+        file(context).writeText(AtRest.enc(content))
     }
 }

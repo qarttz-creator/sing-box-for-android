@@ -25,13 +25,14 @@ object ProfileStore {
 
     private fun prefs(c: Context) = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun loadLinks(c: Context): String = prefs(c).getString(KEY_LINKS, "") ?: ""
+    // links/sub_url/activation содержат адреса шлюзов и креды → шифруем на диске (AtRest).
+    fun loadLinks(c: Context): String = AtRest.dec(prefs(c).getString(KEY_LINKS, "") ?: "")
 
     /** True once the client has been activated (has at least one server / raw config saved). */
     fun hasProfile(c: Context): Boolean = loadLinks(c).isNotBlank()
 
     fun saveLinks(c: Context, text: String) {
-        prefs(c).edit().putString(KEY_LINKS, text).apply()
+        prefs(c).edit().putString(KEY_LINKS, AtRest.enc(text)).apply()
     }
 
     fun loadSelection(c: Context): Int = prefs(c).getInt(KEY_SELECTION, -1)
@@ -40,19 +41,19 @@ object ProfileStore {
         prefs(c).edit().putInt(KEY_SELECTION, index).apply()
     }
 
-    fun subUrl(c: Context): String = prefs(c).getString(KEY_SUB_URL, "") ?: ""
+    fun subUrl(c: Context): String = AtRest.dec(prefs(c).getString(KEY_SUB_URL, "") ?: "")
 
     fun saveSubUrl(c: Context, url: String) {
-        prefs(c).edit().putString(KEY_SUB_URL, url).apply()
+        prefs(c).edit().putString(KEY_SUB_URL, AtRest.enc(url)).apply()
     }
 
     /** The shared activation / test profile (bootstrap routes), self-updated over the tunnel from
      *  the control plane's /activation. Used to build a tunnel when the user's own sub host is
      *  blocked, and as the route test-check. Empty until first fetched. */
-    fun activationLinks(c: Context): String = prefs(c).getString(KEY_ACTIVATION, "") ?: ""
+    fun activationLinks(c: Context): String = AtRest.dec(prefs(c).getString(KEY_ACTIVATION, "") ?: "")
 
     fun saveActivationLinks(c: Context, text: String) {
-        prefs(c).edit().putString(KEY_ACTIVATION, text).apply()
+        prefs(c).edit().putString(KEY_ACTIVATION, AtRest.enc(text)).apply()
     }
 
     fun routingMode(c: Context): Int = prefs(c).getInt(KEY_ROUTE_MODE, MODE_OFF)

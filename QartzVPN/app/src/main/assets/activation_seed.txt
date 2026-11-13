@@ -1,12 +1,5 @@
-# QartzVPN — baked-in activation routes (seed).
-#
-# These are the CURRENT entry routes every client uses to BUILD its tunnel on first activation. They
-# are the same gateways the subscription rides on — bringing this tunnel up is the health check, after
-# which the client pulls the user's own subscription over the tunnel and reloads onto it.
-#
-# One server link per line (vless://… , hysteria2://… , and later awg/amneziawg configs). Use the most
-# censorship-resistant routes available — on Beeline that means AmneziaWG (added after the AWG core-swap);
-# until AWG is in here, a brand-new client on Beeline will correctly report "VPN doesn't work here".
-#
-# When the routes change, update this file and ship a new build. Lines starting with '#' and blank
-# lines are ignored. Keep this list in sync with the control plane's /activation output.
+# QartzVPN activation seed — ПЛЕЙСХОЛДЕР. Реальные маршруты сюда НЕ коммитятся.
+# Сид запекается при сборке (шаг "Bake activation seed"):
+#   1) из ACTIVATION_URL (/activation контрол-плейна), если задан и доступен с раннера; иначе
+#   2) из секрета репозитория ACTIVATION_SEED (храните там текущий вывод curl .../activation).
+# Пустой сид = клиент не построит первый туннель, поэтому для релиза задайте секрет или URL.

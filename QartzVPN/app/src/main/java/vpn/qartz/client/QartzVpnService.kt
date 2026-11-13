@@ -177,6 +177,7 @@ class QartzVpnService :
             var everConnected = false
             var lastSubRefresh = 0L
             val subRefreshMs = 6L * 60 * 60 * 1000  // периодический ре-пулл /sub раз в ~6ч, пока подключён
+            var resubSeen = 0L  // последняя обработанная эпоха push-подписки (resub_at из /hb)
             var fails = 0
             var hbTick = 0
             val startedAt = System.currentTimeMillis()
@@ -189,7 +190,16 @@ class QartzVpnService :
                     // (чинит «висящие» старые маршруты у тех, кто давно не перезапускался).
                     val now = System.currentTimeMillis()
                     if (now - lastSubRefresh >= subRefreshMs) { lastSubRefresh = now; refreshSubOverTunnel() }
-                    if (hbTick % 4 == 0) sendHeartbeat()  // ~every 60s
+                    if (hbTick % 4 == 0) {  // ~every 60s
+                        val resubAt = sendHeartbeat()
+                        // Push-подписка: оператор нажал «раздать всем» (эпоха выросла) ⇒ перечитать /sub.
+                        // Первое ненулевое значение после запуска просто запоминаем (на свежем коннекте
+                        // подписка уже перечитана). refreshSubOverTunnel переподключит только если изменилась.
+                        if (resubAt > 0L) {
+                            if (resubSeen == 0L) resubSeen = resubAt
+                            else if (resubAt > resubSeen) { resubSeen = resubAt; refreshSubOverTunnel() }
+                        }
+                    }
                     hbTick++
                 } else {
                     fails++
@@ -211,12 +221,13 @@ class QartzVpnService :
     }
 
     // Report this client's online status to the control plane (derived from the saved sub URL).
-    private fun sendHeartbeat() {
+    // Returns the server's re-pull epoch (resub_at) from the /hb response, or 0 if none/unavailable.
+    private fun sendHeartbeat(): Long {
         val sub = ProfileStore.subUrl(this)
-        if (sub.isBlank()) return
+        if (sub.isBlank()) return 0L
         try {
             val u = URL(sub)
-            val token = android.net.Uri.parse(sub).getQueryParameter("token") ?: return
+            val token = android.net.Uri.parse(sub).getQueryParameter("token") ?: return 0L
             val base = "${u.protocol}://${u.authority}"
             val conn = (URL("$base/hb").openConnection() as HttpURLConnection).apply {
                 connectTimeout = 5000
@@ -239,11 +250,16 @@ class QartzVpnService :
                 .put("routes", routesArr)
                 .toString()
             conn.outputStream.use { it.write(body.toByteArray()) }
-            conn.responseCode
+            val code = conn.responseCode
+            val text = if (code in 200..299) conn.inputStream.bufferedReader().use { it.readText() } else ""
             conn.disconnect()
+            if (text.isNotBlank()) {
+                return runCatching { org.json.JSONObject(text).optLong("resub_at", 0L) }.getOrDefault(0L)
+            }
         } catch (e: Exception) {
             // best-effort
         }
+        return 0L
     }
 
     // Pull the latest server list THROUGH the tunnel, once a route is confirmed up.

@@ -277,6 +277,9 @@ class MainActivity : AppCompatActivity() {
         if (BuildConfig.DEV_TOOLS) {
             actions.add(Pair(getString(R.string.dev_logs), { showLogs() }))
             actions.add(Pair(getString(R.string.dev_manual), { showManualConfig() }))
+        } else {
+            // Клиент не видит сырой лог, но может прислать его в поддержку зашифрованным.
+            actions.add(Pair(getString(R.string.dev_send_log), { sendEncryptedLog() }))
         }
         val labels = actions.map { it.first }.toTypedArray()
         AlertDialog.Builder(this)
@@ -284,6 +287,18 @@ class MainActivity : AppCompatActivity() {
             .setItems(labels) { _, which -> actions[which].second() }
             .setNegativeButton(R.string.close, null)
             .show()
+    }
+
+    private fun sendEncryptedLog() {
+        val f = LogCrypto.exportEncrypted(this)
+        if (f == null) { toast(getString(R.string.dev_log_empty)); return }
+        val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "application/octet-stream"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(send, getString(R.string.dev_send_log)))
     }
 
     private fun showManualConfig() {

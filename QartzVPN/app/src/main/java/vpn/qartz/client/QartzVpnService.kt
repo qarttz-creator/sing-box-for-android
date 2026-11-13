@@ -70,7 +70,10 @@ class QartzVpnService :
     private fun instrumentedConfig(raw: String): String = try {
         val obj = org.json.JSONObject(raw)
         val log = obj.optJSONObject("log") ?: org.json.JSONObject()
-        log.put("level", "trace")
+        // Инженерная сборка — trace (видно всё, включая соединения). Клиентская — warn: перечисление
+        // соединений с адресами шлюзов идёт на info/debug/trace, на warn их в логе НЕТ. Так адреса
+        // в клиентский лог не попадают вовсе; наружу лог уходит только зашифрованным (LogCrypto).
+        log.put("level", if (BuildConfig.DEV_TOOLS) "trace" else "warn")
         log.put("timestamp", true)
         log.put("output", logFile(this).absolutePath)
         obj.put("log", log)

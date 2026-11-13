@@ -50,6 +50,8 @@
     <string name="dev_logs">Логи</string>
     <string name="dev_manual">Ручной режим (конфиг)</string>
     <string name="dev_update">Проверить обновление</string>
+    <string name="dev_send_log">Отправить лог</string>
+    <string name="dev_log_empty">Лог пуст</string>
     <string name="close">Закрыть</string>
 
     <!-- in-app updater -->

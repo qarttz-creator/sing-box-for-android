@@ -175,7 +175,8 @@ class QartzVpnService :
         monitorJob = scope.launch {
             var connected = false
             var everConnected = false
-            var subRefreshed = false
+            var lastSubRefresh = 0L
+            val subRefreshMs = 6L * 60 * 60 * 1000  // периодический ре-пулл /sub раз в ~6ч, пока подключён
             var fails = 0
             var hbTick = 0
             val startedAt = System.currentTimeMillis()
@@ -183,8 +184,11 @@ class QartzVpnService :
                 if (probeTunnel()) {
                     fails = 0
                     if (!connected) { connected = true; everConnected = true; VpnState.set(VpnState.Stage.Connected, "") }
-                    // A route is confirmed up → pull the latest server list THROUGH the tunnel, once.
-                    if (!subRefreshed) { subRefreshed = true; refreshSubOverTunnel() }
+                    // Периодически перечитываем /sub ЧЕРЕЗ туннель: сразу при коннекте и далее раз в ~6ч.
+                    // Так подключённые клиенты сами подхватывают смену шлюзов без переустановки/реконнекта
+                    // (чинит «висящие» старые маршруты у тех, кто давно не перезапускался).
+                    val now = System.currentTimeMillis()
+                    if (now - lastSubRefresh >= subRefreshMs) { lastSubRefresh = now; refreshSubOverTunnel() }
                     if (hbTick % 4 == 0) sendHeartbeat()  // ~every 60s
                     hbTick++
                 } else {

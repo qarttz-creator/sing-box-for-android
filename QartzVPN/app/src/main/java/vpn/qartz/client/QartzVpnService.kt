@@ -244,6 +244,8 @@ class QartzVpnService :
             }
             val body = org.json.JSONObject()
                 .put("token", token)
+                .put("device_id", ProfileStore.deviceId(this))
+                .put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim())
                 .put("version", BuildConfig.VERSION_NAME)
                 .put("gateway", gateway)
                 .put("platform", "android")

@@ -17,6 +17,7 @@ object ProfileStore {
     private const val KEY_ALLOW_LAN = "allow_lan"
     private const val KEY_AUTOSTART = "autostart"
     private const val KEY_RU_DIRECT = "ru_direct"
+    private const val KEY_DEVICE_ID = "device_id"
 
     // Per-app routing modes
     const val MODE_OFF = 0          // everything through the tunnel
@@ -24,6 +25,18 @@ object ProfileStore {
     const val MODE_INCLUDE = 2      // only selected apps go through the tunnel
 
     private fun prefs(c: Context) = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /** Стабильный id этой установки для учёта устройств в панели: генерится один раз, переживает
+     *  смену IP/сети. Не секрет (просто случайный UUID) — без AtRest. */
+    fun deviceId(c: Context): String {
+        val p = prefs(c)
+        var id = p.getString(KEY_DEVICE_ID, "") ?: ""
+        if (id.isBlank()) {
+            id = java.util.UUID.randomUUID().toString().replace("-", "")
+            p.edit().putString(KEY_DEVICE_ID, id).apply()
+        }
+        return id
+    }
 
     // links/sub_url/activation содержат адреса шлюзов и креды → шифруем на диске (AtRest).
     fun loadLinks(c: Context): String = AtRest.dec(prefs(c).getString(KEY_LINKS, "") ?: "")

@@ -156,7 +156,8 @@ jobs:
         run: |
           ./gradlew :app:assembleRelease --no-daemon --stacktrace \
             -PqartzVersionCode=${{ github.run_number }} \
-            -PqartzVersionName=1.0.${{ github.run_number }}
+            -PqartzVersionName=1.0.${{ github.run_number }} \
+            -PqartzDev=${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.promote == 'true') && 'false' || 'true' }}
 
       # Gate: only an explicit manual run with promote=true touches the user-facing
       # android-latest channel (the in-app updater reads that fixed URL). Every other

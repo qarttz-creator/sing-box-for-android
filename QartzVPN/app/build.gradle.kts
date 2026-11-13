@@ -14,6 +14,16 @@ android {
         // Overridable from CI: -PqartzVersionCode=<n> -PqartzVersionName=<s>
         versionCode = (project.findProperty("qartzVersionCode") as String?)?.toIntOrNull() ?: 1
         versionName = (project.findProperty("qartzVersionName") as String?) ?: "0.1.0"
+
+        // DEV_TOOLS=true — инженерная сборка (канал android-dev): открытые логи, ручной конфиг,
+        // просмотрщики. false — клиентская (android-latest): логи шифруются нашим ключом, dev-
+        // просмотрщиков нет, конфиг шифруется на диске. Канал задаёт CI через -PqartzDev; локально
+        // по умолчанию dev-сборка (true), чтобы руками тестировать было удобно.
+        buildConfigField(
+            "boolean",
+            "DEV_TOOLS",
+            ((project.findProperty("qartzDev") as String?) ?: "true").let { it == "true" }.toString(),
+        )
     }
 
     signingConfigs {

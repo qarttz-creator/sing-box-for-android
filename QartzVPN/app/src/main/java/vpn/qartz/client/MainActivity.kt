@@ -267,24 +267,21 @@ class MainActivity : AppCompatActivity() {
     // ---------- hidden maintenance menu ----------
 
     private fun showDevMenu() {
-        val items = arrayOf(
-            getString(R.string.dev_update),
-            getString(R.string.dev_refresh),
-            getString(R.string.dev_change_sub),
-            getString(R.string.dev_logs),
-            getString(R.string.dev_manual),
+        // Клиентская сборка (DEV_TOOLS=false): только безопасные пункты. Просмотр логов и ручной
+        // конфиг (показывают сырые ссылки с адресами шлюзов) — лишь в инженерной сборке.
+        val actions = mutableListOf<Pair<String, () -> Unit>>(
+            Pair(getString(R.string.dev_update), { checkForUpdate(manual = true) }),
+            Pair(getString(R.string.dev_refresh), { silentSubRefresh(); toast(getString(R.string.dev_refresh_done)) }),
+            Pair(getString(R.string.dev_change_sub), { startActivity(Intent(this, ActivationActivity::class.java)) }),
         )
+        if (BuildConfig.DEV_TOOLS) {
+            actions.add(Pair(getString(R.string.dev_logs), { showLogs() }))
+            actions.add(Pair(getString(R.string.dev_manual), { showManualConfig() }))
+        }
+        val labels = actions.map { it.first }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle(R.string.dev_title)
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> checkForUpdate(manual = true)
-                    1 -> { silentSubRefresh(); toast(getString(R.string.dev_refresh_done)) }
-                    2 -> startActivity(Intent(this, ActivationActivity::class.java))
-                    3 -> showLogs()
-                    4 -> showManualConfig()
-                }
-            }
+            .setItems(labels) { _, which -> actions[which].second() }
             .setNegativeButton(R.string.close, null)
             .show()
     }

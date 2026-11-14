@@ -13,6 +13,9 @@ import org.json.JSONObject
  */
 object AwgConfig {
 
+    /** Keepalive по умолчанию, если шлюз не прислал PersistentKeepalive (стандарт мобильных WG-клиентов). */
+    private const val DEFAULT_KEEPALIVE = 25
+
     /** True if [text] looks like an AmneziaWG INI config block (as opposed to a share link or JSON). */
     fun looksLikeIni(text: String): Boolean =
         text.contains("[Interface]", true) && text.contains("PrivateKey", true)
@@ -70,7 +73,11 @@ object AwgConfig {
             .put("public_key", pub)
             .put("allowed_ips", cidrList(peer["allowedips"] ?: "0.0.0.0/0"))
         peer["presharedkey"]?.takeIf { it.isNotEmpty() }?.let { peerObj.put("preshared_key", it) }
-        peer["persistentkeepalive"]?.trim()?.toIntOrNull()?.let { peerObj.put("persistent_keepalive_interval", it) }
+        // Keepalive обязателен на телефоне: все AWG-эндпоинты живут одновременно, неактивные молчат,
+        // и роутер/оператор закрывает их UDP-трансляцию → проба попадает в мёртвую сессию, маршрут
+        // горит красным. Если шлюз не прислал PersistentKeepalive — ставим стандартные 25с.
+        val keepalive = peer["persistentkeepalive"]?.trim()?.toIntOrNull()?.takeIf { it > 0 } ?: DEFAULT_KEEPALIVE
+        peerObj.put("persistent_keepalive_interval", keepalive)
 
         return ep.put("peers", JSONArray().put(peerObj))
     }

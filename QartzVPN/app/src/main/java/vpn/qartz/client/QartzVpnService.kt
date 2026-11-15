@@ -176,6 +176,8 @@ class QartzVpnService :
                 VpnState.set(VpnState.Stage.Connecting, "")
                 startConnectivityMonitor()
                 GatewayStatus.start() // read the active urltest member for heartbeat reporting
+                RouteSteer.log = { sbLog(it) }
+                RouteSteer.start(this@QartzVpnService) // выбор маршрута по пингу и нагрузке шлюзов
             } catch (e: Exception) {
                 Log.e(TAG, "start failed", e)
                 sbLog("[qartz] start FAILED: ${e.message ?: e}")
@@ -208,6 +210,8 @@ class QartzVpnService :
         commandServer?.setService(bs)
         boxService = bs
         sbLog("[qartz] service reloaded onto current config")
+        // новый sing-box — selector снова на первом члене: RouteSteer выбирает заново
+        if (running) RouteSteer.start(this)
     }
 
     private fun fail(message: String) {
@@ -315,7 +319,13 @@ class QartzVpnService :
             val text = if (code in 200..299) conn.inputStream.bufferedReader().use { it.readText() } else ""
             conn.disconnect()
             if (text.isNotBlank()) {
-                return runCatching { org.json.JSONObject(text).optLong("resub_at", 0L) }.getOrDefault(0L)
+                return runCatching {
+                    val o = org.json.JSONObject(text)
+                    o.optJSONObject("load")?.let { l ->
+                        RouteSteer.setLoad(l.keys().asSequence().associateWith { l.optInt(it) })
+                    }
+                    o.optLong("resub_at", 0L)
+                }.getOrDefault(0L)
             }
         } catch (e: Exception) {
             // best-effort
@@ -400,6 +410,7 @@ class QartzVpnService :
         monitorJob = null
         unregisterWakeKick()
         scope.launch {
+            runCatching { RouteSteer.stop() }
             runCatching { GatewayStatus.stop() }
             runCatching { boxService?.close() }
             boxService = null
@@ -431,6 +442,7 @@ class QartzVpnService :
 
     override fun onDestroy() {
         unregisterWakeKick()
+        runCatching { RouteSteer.stop() }
         runCatching { GatewayStatus.stop() }
         runCatching { boxService?.close() }
         runCatching { commandServer?.close() }

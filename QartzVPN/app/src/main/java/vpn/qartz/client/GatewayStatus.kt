@@ -32,6 +32,11 @@ object GatewayStatus : CommandClientHandler {
 
     data class RouteStat(val tag: String, val up: Boolean)
 
+    /** Последний замер пинга по маршрутам (мс; 0 — не прошёл), для RouteSteer. */
+    @Volatile
+    var delays: Map<String, Int> = emptyMap()
+        private set
+
     // Гистерезис здоровья: urltest гоняет все маршруты ОДНИМ одновременным проходом каждые 30с с
     // фиксированным таймаутом. На Wi-Fi 9 проб конкурируют за канал (+ AWG добавляет RTT на хендшейк),
     // часть не укладывается → getURLTestDelay()==0 в этом цикле → ложный «мёртв», отсюда мигание 5–6/9.
@@ -61,8 +66,25 @@ object GatewayStatus : CommandClientHandler {
         client = null
         selectedTag = ""
         routes = emptyList()
+        delays = emptyMap()
         lastUpAt.clear()
         if (c != null) thread { runCatching { c.disconnect() } }
+    }
+
+    // ---- команды ядру (каждая — отдельное короткое соединение к CommandServer) ----
+
+    /** Запустить замер пинга всех членов группы (urltest-группа меряет своим URL). */
+    fun urlTest(group: String) {
+        runCatching { client?.urlTest(group) }
+    }
+
+    /** Переключить selector-группу на маршрут. */
+    fun select(group: String, tag: String): Boolean =
+        runCatching { client?.selectOutbound(group, tag); client != null }.getOrDefault(false)
+
+    /** Оборвать текущие соединения (после смены маршрута — чтобы не висели на старом). */
+    fun closeConnections() {
+        runCatching { client?.closeConnections() }
     }
 
     // ---- CommandClientHandler (amnezia-box) ----
@@ -74,16 +96,20 @@ object GatewayStatus : CommandClientHandler {
                 selectedTag = g.selected ?: ""
                 val now = System.currentTimeMillis()
                 val list = mutableListOf<RouteStat>()
+                val d = mutableMapOf<String, Int>()
                 val items = g.getItems()
                 while (items.hasNext()) {
                     val item = items.next() ?: continue
                     val tag = item.tag ?: ""
-                    val rawUp = item.getURLTestDelay() > 0
+                    val delay = item.getURLTestDelay()
+                    d[tag] = delay
+                    val rawUp = delay > 0
                     if (rawUp) lastUpAt[tag] = now
                     val up = rawUp || (lastUpAt[tag]?.let { now - it < UP_HOLD_MS } ?: false)
                     list.add(RouteStat(tag, up))
                 }
                 routes = list
+                delays = d
             }
         }
     }

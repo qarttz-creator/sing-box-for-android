@@ -66,17 +66,26 @@ object ConfigBuilder {
             }
         }
 
-        // urltest = client-side balancer / auto-failover across the given members.
+        // Маршрут выбирает приложение (RouteSteer: пинг + нагрузка шлюза), а не ядро: трафик идёт через
+        // selector "proxy", которым RouteSteer управляет через CommandClient. Пинг меряет отдельная
+        // urltest-группа "proxy-probe" (через неё ничего не ходит; замер запускает RouteSteer).
+        // Пока RouteSteer не выбрал — selector на первом члене (как раньше urltest на старте).
+        outbounds.put(
+            JSONObject()
+                .put("type", "selector")
+                .put("tag", GROUP)
+                .put("outbounds", groupMembers)
+                .put("default", groupMembers.optString(0))
+                .put("interrupt_exist_connections", false),
+        )
         outbounds.put(
             JSONObject()
                 .put("type", "urltest")
-                .put("tag", GROUP)
+                .put("tag", RouteSteer.PROBE)
                 .put("outbounds", groupMembers)
                 .put("url", TEST_URL)
                 .put("interval", "30s")
-                .put("tolerance", 100)
-                .put("idle_timeout", "5m")
-                .put("interrupt_exist_connections", true),
+                .put("tolerance", 100),
         )
         outbounds.put(JSONObject().put("type", "direct").put("tag", "direct"))
 

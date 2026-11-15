@@ -39,9 +39,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.HttpURLConnection
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -88,6 +90,55 @@ class QartzVpnService :
     private var fileDescriptor: ParcelFileDescriptor? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var monitorJob: Job? = null
+
+    // «Пинок» монитору: экран включился / сменилась сеть — проверить туннель сразу, не дожидаясь
+    // следующего тика (после сна на vless телефон иначе висит «подключённым» без трафика).
+    private val kick = Channel<Unit>(Channel.CONFLATED)
+    private var screenReceiver: android.content.BroadcastReceiver? = null
+
+    private fun registerWakeKick() {
+        if (screenReceiver != null) return
+        val r = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: android.content.Context?, i: Intent?) {
+                if (i?.action == Intent.ACTION_SCREEN_ON || i?.action == Intent.ACTION_USER_PRESENT) kick.trySend(Unit)
+            }
+        }
+        val f = android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        runCatching {
+            androidx.core.content.ContextCompat.registerReceiver(
+                this, r, f, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+            screenReceiver = r
+        }
+    }
+
+    private fun unregisterWakeKick() {
+        screenReceiver?.let { runCatching { unregisterReceiver(it) } }
+        screenReceiver = null
+    }
+
+    /** Самовосстановление после сна/смены сети. xray (vless) — отдельный процесс: Android может его
+     *  убить (phantom process killer) или его HTTP/2-соединения к шлюзу протухают за время сна, а
+     *  sing-box продолжает слать трафик в мёртвый vless. Лестница: перезапуск xray → пересборка
+     *  sing-box (свежий проход urltest, выбор живого маршрута) → повтор раз в ~40с. */
+    private fun heal(fails: Int) {
+        val xrayOn = XrayConfigStore.exists(this)
+        when {
+            fails == 2 -> {
+                sbLog("[qartz] heal: туннель молчит — перезапускаю xray")
+                if (xrayOn) XrayProcess.start(this)
+            }
+            fails == 4 || (fails > 4 && fails % 10 == 4) -> {
+                sbLog("[qartz] heal: не помогло — пересобираю sing-box (fails=$fails)")
+                if (xrayOn) XrayProcess.start(this)
+                runCatching { reloadService() }.onFailure { sbLog("[qartz] heal: reload failed: ${it.message}") }
+            }
+        }
+    }
+
     @Volatile
     private var running = false
 
@@ -181,7 +232,14 @@ class QartzVpnService :
             var fails = 0
             var hbTick = 0
             val startedAt = System.currentTimeMillis()
+            registerWakeKick()
             while (isActive && running) {
+                // xray убит системой (часто после сна) — поднимаем сразу, не дожидаясь провала пробы
+                if (XrayConfigStore.exists(this@QartzVpnService) && !XrayProcess.isAlive()) {
+                    sbLog("[qartz] xray не запущен — поднимаю")
+                    XrayProcess.start(this@QartzVpnService)
+                    delay(500)
+                }
                 if (probeTunnel()) {
                     fails = 0
                     if (!connected) { connected = true; everConnected = true; VpnState.set(VpnState.Stage.Connected, "") }
@@ -203,6 +261,7 @@ class QartzVpnService :
                     hbTick++
                 } else {
                     fails++
+                    if (everConnected) heal(fails)
                     if (connected) {
                         if (fails >= 2) {
                             connected = false
@@ -215,7 +274,7 @@ class QartzVpnService :
                         return@launch
                     }
                 }
-                delay(if (connected) 15000L else 4000L)
+                withTimeoutOrNull(if (connected) 15000L else 4000L) { kick.receive() }
             }
         }
     }
@@ -339,6 +398,7 @@ class QartzVpnService :
         running = false
         monitorJob?.cancel()
         monitorJob = null
+        unregisterWakeKick()
         scope.launch {
             runCatching { GatewayStatus.stop() }
             runCatching { boxService?.close() }
@@ -370,6 +430,7 @@ class QartzVpnService :
     }
 
     override fun onDestroy() {
+        unregisterWakeKick()
         runCatching { GatewayStatus.stop() }
         runCatching { boxService?.close() }
         runCatching { commandServer?.close() }
@@ -549,7 +610,10 @@ class QartzVpnService :
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = pushDefaultInterface(listener, network)
+            override fun onAvailable(network: Network) {
+                pushDefaultInterface(listener, network)
+                kick.trySend(Unit) // новая сеть — сразу проверить, живы ли соединения туннеля
+            }
             override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) =
                 pushDefaultInterface(listener, network)
 

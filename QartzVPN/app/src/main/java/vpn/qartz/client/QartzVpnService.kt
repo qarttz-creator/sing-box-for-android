@@ -331,7 +331,7 @@ class QartzVpnService :
             runCatching {
                 val conn = (URL(sub).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 8000
-                    readTimeout = 8000
+                    readTimeout = 30000 // панель собирает /sub опросом всех шлюзов — дать ей время
                     requestMethod = "GET"
                 }
                 val code = conn.responseCode

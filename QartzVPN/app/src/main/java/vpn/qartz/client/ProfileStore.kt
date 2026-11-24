@@ -60,6 +60,45 @@ object ProfileStore {
         prefs(c).edit().putString(KEY_SUB_URL, AtRest.enc(url)).apply()
     }
 
+    /** Авто-миграция адреса центра (например, со старого 222 на Токио): переписываем
+     *  scheme://host:port в sub_url, сохраняя путь и ?token=… */
+    fun migrateSubBase(c: Context, newBase: String): Boolean {
+        val trimmed = newBase.trim().trimEnd('/')
+        if (trimmed.isBlank()) return false
+        return runCatching {
+            val nb = java.net.URL(trimmed)
+            if (nb.protocol != "http" && nb.protocol != "https") return false
+            val curRaw = subUrl(c).trim()
+            if (curRaw.isBlank()) return false
+            val cur = java.net.URL(curRaw)
+            val curBase = "${cur.protocol}://${cur.authority}"
+            val targetBase = "${nb.protocol}://${nb.authority}"
+            if (curBase.equals(targetBase, ignoreCase = true)) return false
+            val pathAndQuery = buildString {
+                append(cur.path.ifEmpty { "/sub" })
+                if (!cur.query.isNullOrEmpty()) append("?").append(cur.query)
+            }
+            saveSubUrl(c, targetBase + pathAndQuery)
+            true
+        }.getOrDefault(false)
+    }
+
+    /** Проверяет, что тело /sub содержит хотя бы один валидный маршрут (защита от затирания мусором/HTML). */
+    fun hasValidServer(text: String): Boolean {
+        val t = text.trim()
+        if (t.isBlank() || t.startsWith("<")) return false
+        if (t.startsWith("{") || AwgConfig.looksLikeIni(t)) return true
+        return t.lines().any { line -> LinkParser.parse(line, 0) != null }
+    }
+
+    /** Нормализованный отсортированный список строк подписки для честного сравнения без ложных реконнектов. */
+    fun normalizeLinks(text: String): String =
+        text.replace("\r\n", "\n").lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .sorted()
+            .joinToString("\n")
+
     /** The shared activation / test profile (bootstrap routes), self-updated over the tunnel from
      *  the control plane's /activation. Used to build a tunnel when the user's own sub host is
      *  blocked, and as the route test-check. Empty until first fetched. */
@@ -75,8 +114,8 @@ object ProfileStore {
         prefs(c).edit().putInt(KEY_ROUTE_MODE, mode).apply()
     }
 
-    /** Keep local devices (printers, car, NAS, router) reachable while connected. Default on. */
-    fun allowLan(c: Context): Boolean = prefs(c).getBoolean(KEY_ALLOW_LAN, true)
+    /** Keep local devices (printers, car, NAS, router, corporate LAN) reachable while connected. Default off (all in tunnel). */
+    fun allowLan(c: Context): Boolean = prefs(c).getBoolean(KEY_ALLOW_LAN, false)
 
     fun saveAllowLan(c: Context, v: Boolean) {
         prefs(c).edit().putBoolean(KEY_ALLOW_LAN, v).apply()
@@ -89,8 +128,8 @@ object ProfileStore {
         prefs(c).edit().putBoolean(KEY_AUTOSTART, v).apply()
     }
 
-    /** Route RU domains (.ru/.рф/.su) directly, bypassing the VPN. Default on. */
-    fun ruDirect(c: Context): Boolean = prefs(c).getBoolean(KEY_RU_DIRECT, true)
+    /** Route RU domains (.ru/.рф/.su) directly with system DNS. Default off (all in tunnel). */
+    fun ruDirect(c: Context): Boolean = prefs(c).getBoolean(KEY_RU_DIRECT, false)
 
     fun saveRuDirect(c: Context, v: Boolean) {
         prefs(c).edit().putBoolean(KEY_RU_DIRECT, v).apply()

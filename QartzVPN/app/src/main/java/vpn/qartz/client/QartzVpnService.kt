@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.content.pm.PackageManager.NameNotFoundException
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
+import android.net.DnsResolver
 import android.net.IpPrefix
 import android.net.LinkProperties
 import android.net.Network
@@ -16,8 +17,10 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
+import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.system.ErrnoException
 import android.system.OsConstants
 import android.util.Log
 import androidx.annotation.RequiresApi
@@ -25,6 +28,7 @@ import androidx.core.app.NotificationCompat
 import io.nekohasekai.libbox.BoxService
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
+import io.nekohasekai.libbox.ExchangeContext
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.LocalDNSTransport
@@ -39,10 +43,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.HttpURLConnection
 import java.net.Inet6Address
@@ -50,6 +56,12 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.InterfaceAddress
 import java.net.URL
+import java.net.UnknownHostException
+import java.util.concurrent.CancellationException
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.suspendCoroutine
 import java.net.NetworkInterface as JavaNetworkInterface
 import io.nekohasekai.libbox.NetworkInterface as LibboxNetworkInterface
 
@@ -61,6 +73,7 @@ class QartzVpnService :
     companion object {
         private const val TAG = "QartzVpnService"
         const val ACTION_STOP = "vpn.qartz.client.STOP"
+        const val ACTION_RELOAD = "vpn.qartz.client.RELOAD"
         private const val NOTIF_CHANNEL = "qartz-vpn"
         private const val NOTIF_ID = 1
 
@@ -142,11 +155,39 @@ class QartzVpnService :
     @Volatile
     private var running = false
 
+    @Volatile
+    private var underlyingNetwork: Network? = null
+
+    @Volatile
+    private var lastSubRefreshOkAt = 0L
+
+    @Volatile
+    private var lastSubAttemptAt = 0L
+
+    @Volatile
+    private var subRefreshing = false
+
     // ---------------- lifecycle ----------------
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             stopVpn()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_RELOAD) {
+            if (running) {
+                scope.launch {
+                    runCatching {
+                        if (ConfigAssembler.assemble(this@QartzVpnService) is ConfigAssembler.Result.Ok) {
+                            if (XrayConfigStore.exists(this@QartzVpnService)) {
+                                XrayProcess.start(this@QartzVpnService)
+                                delay(300)
+                            }
+                            reloadService()
+                        }
+                    }.onFailure { sbLog("[qartz] reload failed: ${it.message}") }
+                }
+            }
             return START_NOT_STICKY
         }
         startForegroundCompat()
@@ -230,8 +271,10 @@ class QartzVpnService :
         monitorJob = scope.launch {
             var connected = false
             var everConnected = false
-            var lastSubRefresh = 0L
+            lastSubRefreshOkAt = 0L
+            lastSubAttemptAt = 0L
             val subRefreshMs = 6L * 60 * 60 * 1000  // периодический ре-пулл /sub раз в ~6ч, пока подключён
+            val subRetryMs = 60L * 1000              // ретрай при сбое /sub через 60с (не ждать 6ч)
             var resubSeen = 0L  // последняя обработанная эпоха push-подписки (resub_at из /hb)
             var fails = 0
             var hbTick = 0
@@ -247,11 +290,15 @@ class QartzVpnService :
                 if (probeTunnel()) {
                     fails = 0
                     if (!connected) { connected = true; everConnected = true; VpnState.set(VpnState.Stage.Connected, "") }
-                    // Периодически перечитываем /sub ЧЕРЕЗ туннель: сразу при коннекте и далее раз в ~6ч.
-                    // Так подключённые клиенты сами подхватывают смену шлюзов без переустановки/реконнекта
-                    // (чинит «висящие» старые маршруты у тех, кто давно не перезапускался).
+                    // Периодически перечитываем /sub ЧЕРЕЗ туннель: сразу при коннекте (с ретраем раз
+                    // в 60с при ошибке) и далее раз в ~6ч.
                     val now = System.currentTimeMillis()
-                    if (now - lastSubRefresh >= subRefreshMs) { lastSubRefresh = now; refreshSubOverTunnel() }
+                    val needSub = (lastSubRefreshOkAt == 0L || now - lastSubRefreshOkAt >= subRefreshMs) &&
+                        (now - lastSubAttemptAt >= subRetryMs)
+                    if (needSub && !subRefreshing) {
+                        lastSubAttemptAt = now
+                        refreshSubOverTunnel()
+                    }
                     if (hbTick % 4 == 0) {  // ~every 60s
                         val resubAt = sendHeartbeat()
                         // Push-подписка: оператор нажал «раздать всем» (эпоха выросла) ⇒ перечитать /sub.
@@ -259,7 +306,12 @@ class QartzVpnService :
                         // подписка уже перечитана). refreshSubOverTunnel переподключит только если изменилась.
                         if (resubAt > 0L) {
                             if (resubSeen == 0L) resubSeen = resubAt
-                            else if (resubAt > resubSeen) { resubSeen = resubAt; refreshSubOverTunnel() }
+                            else if (resubAt > resubSeen) {
+                                resubSeen = resubAt
+                                sbLog("[qartz] push resub_at=$resubAt — перечитываю /sub")
+                                lastSubAttemptAt = System.currentTimeMillis()
+                                refreshSubOverTunnel()
+                            }
                         }
                     }
                     hbTick++
@@ -324,6 +376,10 @@ class QartzVpnService :
                     o.optJSONObject("load")?.let { l ->
                         RouteSteer.setLoad(l.keys().asSequence().associateWith { l.optInt(it) })
                     }
+                    val subBase = o.optString("sub_base", "")
+                    if (subBase.isNotBlank() && ProfileStore.migrateSubBase(this, subBase)) {
+                        sbLog("[qartz] sub_base migrated -> $subBase")
+                    }
                     o.optLong("resub_at", 0L)
                 }.getOrDefault(0L)
             }
@@ -336,34 +392,46 @@ class QartzVpnService :
     // Pull the latest server list THROUGH the tunnel, once a route is confirmed up.
     private fun refreshSubOverTunnel() {
         val sub = ProfileStore.subUrl(this)
-        if (sub.isBlank()) return // manual-config user (pasted links/JSON) — nothing to refresh
+        if (sub.isBlank() || subRefreshing) return // manual-config user or refresh already in flight
+        subRefreshing = true
         scope.launch {
-            runCatching {
-                val conn = (URL(sub).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 8000
-                    readTimeout = 30000 // панель собирает /sub опросом всех шлюзов — дать ей время
-                    requestMethod = "GET"
-                }
-                val code = conn.responseCode
-                val text = if (code in 200..299) conn.inputStream.bufferedReader().use { it.readText() } else ""
-                conn.disconnect()
-                // Guard against HTML error/captive-portal pages masquerading as a sub body.
-                if (code in 200..299 && text.isNotBlank() && !text.trimStart().startsWith("<")) {
-                    val before = ProfileStore.loadLinks(this@QartzVpnService).trim()
-                    if (text.trim() != before) {
-                        ProfileStore.saveLinks(this@QartzVpnService, text)
-                        sbLog("sub refreshed over tunnel (${text.length} bytes) — switching to per-user routes")
-                        // Rebuild the runtime config from the user's own routes and hot-reload onto them.
-                        runCatching {
-                            if (ConfigAssembler.assemble(this@QartzVpnService) is ConfigAssembler.Result.Ok) {
-                                reloadService()
-                            } else {
-                                sbLog("[qartz] per-user config assemble failed; staying on activation routes")
-                            }
-                        }
-                    } else {
-                        sbLog("sub refreshed over tunnel — unchanged, staying put")
+            try {
+                runCatching {
+                    val conn = (URL(sub).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 8000
+                        readTimeout = 30000 // панель собирает /sub опросом всех шлюзов — дать ей время
+                        requestMethod = "GET"
                     }
+                    val code = conn.responseCode
+                    val text = if (code in 200..299) conn.inputStream.bufferedReader().use { it.readText() } else ""
+                    conn.disconnect()
+                    if (code !in 200..299) {
+                        sbLog("[qartz] sub refresh failed: HTTP $code")
+                    } else if (!ProfileStore.hasValidServer(text)) {
+                        sbLog("[qartz] sub refresh ignored: empty/non-server body (${text.length} bytes)")
+                    } else {
+                        lastSubRefreshOkAt = System.currentTimeMillis()
+                        val before = ProfileStore.loadLinks(this@QartzVpnService)
+                        if (ProfileStore.normalizeLinks(text) != ProfileStore.normalizeLinks(before)) {
+                            ProfileStore.saveLinks(this@QartzVpnService, text)
+                            sbLog("[qartz] sub refreshed over tunnel (${text.length} bytes) — applying updated routes")
+                            runCatching {
+                                if (ConfigAssembler.assemble(this@QartzVpnService) is ConfigAssembler.Result.Ok) {
+                                    if (XrayConfigStore.exists(this@QartzVpnService)) {
+                                        XrayProcess.start(this@QartzVpnService)
+                                        delay(300)
+                                    }
+                                    reloadService()
+                                } else {
+                                    sbLog("[qartz] updated config assemble failed; keeping current routes")
+                                }
+                            }.onFailure { sbLog("[qartz] sub reload error: ${it.message}") }
+                        } else {
+                            sbLog("[qartz] sub refreshed over tunnel — unchanged, staying put")
+                        }
+                    }
+                }.onFailure {
+                    sbLog("[qartz] sub refresh over tunnel error: ${it.message ?: it}")
                 }
                 // Also self-update the shared activation / test profile (bootstrap routes) over the tunnel.
                 runCatching {
@@ -377,11 +445,13 @@ class QartzVpnService :
                     val acode = ac.responseCode
                     val atext = if (acode in 200..299) ac.inputStream.bufferedReader().use { it.readText() } else ""
                     ac.disconnect()
-                    if (acode in 200..299 && atext.isNotBlank() && !atext.trimStart().startsWith("<")) {
+                    if (acode in 200..299 && ProfileStore.hasValidServer(atext)) {
                         ProfileStore.saveActivationLinks(this@QartzVpnService, atext)
-                        sbLog("activation profile refreshed over tunnel (${atext.length} bytes)")
+                        sbLog("[qartz] activation profile refreshed over tunnel (${atext.length} bytes)")
                     }
                 }
+            } finally {
+                subRefreshing = false
             }
         }
     }
@@ -567,7 +637,129 @@ class QartzVpnService :
 
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
-    override fun localDNSTransport(): LocalDNSTransport? = null
+    override fun localDNSTransport(): LocalDNSTransport = object : LocalDNSTransport {
+        private val RCODE_NXDOMAIN = 3
+
+        override fun raw(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+
+        @RequiresApi(Build.VERSION_CODES.Q)
+        override fun exchange(ctx: ExchangeContext, message: ByteArray) {
+            val net = currentUnderlyingNetwork() ?: error("missing underlying network")
+            runBlocking {
+                suspendCoroutine<Unit> { cont ->
+                    val done = AtomicBoolean(false)
+                    val signal = CancellationSignal()
+                    ctx.onCancel {
+                        signal.cancel()
+                        if (done.compareAndSet(false, true)) {
+                            cont.resumeWithException(CancellationException())
+                        }
+                    }
+                    val callback = object : DnsResolver.Callback<ByteArray> {
+                        override fun onAnswer(answer: ByteArray, rcode: Int) {
+                            if (rcode == 0) ctx.rawSuccess(answer) else ctx.errorCode(rcode)
+                            if (done.compareAndSet(false, true)) cont.resume(Unit)
+                        }
+
+                        override fun onError(error: DnsResolver.DnsException) {
+                            val cause = error.cause
+                            if (cause is ErrnoException) {
+                                ctx.errnoCode(cause.errno)
+                                if (done.compareAndSet(false, true)) cont.resume(Unit)
+                                return
+                            }
+                            if (done.compareAndSet(false, true)) cont.resumeWithException(error)
+                        }
+                    }
+                    DnsResolver.getInstance().rawQuery(
+                        net,
+                        message,
+                        DnsResolver.FLAG_NO_RETRY,
+                        Dispatchers.IO.asExecutor(),
+                        signal,
+                        callback,
+                    )
+                }
+            }
+        }
+
+        override fun lookup(ctx: ExchangeContext, network: String, domain: String) {
+            val net = currentUnderlyingNetwork() ?: error("missing underlying network")
+            runBlocking {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    suspendCoroutine<Unit> { cont ->
+                        val done = AtomicBoolean(false)
+                        val signal = CancellationSignal()
+                        ctx.onCancel {
+                            signal.cancel()
+                            if (done.compareAndSet(false, true)) {
+                                cont.resumeWithException(CancellationException())
+                            }
+                        }
+                        val callback = object : DnsResolver.Callback<Collection<InetAddress>> {
+                            override fun onAnswer(answer: Collection<InetAddress>, rcode: Int) {
+                                if (rcode == 0) {
+                                    ctx.success(answer.mapNotNull { it.hostAddress }.joinToString("\n"))
+                                } else {
+                                    ctx.errorCode(rcode)
+                                }
+                                if (done.compareAndSet(false, true)) cont.resume(Unit)
+                            }
+
+                            override fun onError(error: DnsResolver.DnsException) {
+                                val cause = error.cause
+                                if (cause is ErrnoException) {
+                                    ctx.errnoCode(cause.errno)
+                                    if (done.compareAndSet(false, true)) cont.resume(Unit)
+                                    return
+                                }
+                                if (done.compareAndSet(false, true)) cont.resumeWithException(error)
+                            }
+                        }
+                        val type = when {
+                            network.endsWith("4") -> DnsResolver.TYPE_A
+                            network.endsWith("6") -> DnsResolver.TYPE_AAAA
+                            else -> null
+                        }
+                        if (type != null) {
+                            DnsResolver.getInstance().query(
+                                net, domain, type, DnsResolver.FLAG_NO_RETRY,
+                                Dispatchers.IO.asExecutor(), signal, callback,
+                            )
+                        } else {
+                            DnsResolver.getInstance().query(
+                                net, domain, DnsResolver.FLAG_NO_RETRY,
+                                Dispatchers.IO.asExecutor(), signal, callback,
+                            )
+                        }
+                    }
+                } else {
+                    val answer = try {
+                        net.getAllByName(domain)
+                    } catch (_: UnknownHostException) {
+                        ctx.errorCode(RCODE_NXDOMAIN)
+                        return@runBlocking
+                    }
+                    ctx.success(answer.mapNotNull { it.hostAddress }.joinToString("\n"))
+                }
+            }
+        }
+    }
+
+    private fun currentUnderlyingNetwork(): Network? {
+        underlyingNetwork?.let { return it }
+        val cm = App.connectivity
+        val active = cm.activeNetwork
+        if (active != null && cm.getNetworkCapabilities(active)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true) {
+            return active
+        }
+        return cm.allNetworks.firstOrNull { n ->
+            cm.getNetworkCapabilities(n)?.let {
+                it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    it.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            } == true
+        }
+    }
 
     override fun writeLog(message: String?) {
         if (!message.isNullOrBlank()) sbLog("[core] $message")
@@ -630,6 +822,7 @@ class QartzVpnService :
                 pushDefaultInterface(listener, network)
 
             override fun onLost(network: Network) {
+                if (underlyingNetwork == network) underlyingNetwork = null
                 listener.updateDefaultInterface("", -1, false, false)
             }
         }
@@ -643,16 +836,9 @@ class QartzVpnService :
         // transiently null this early, so retry (mirrors upstream DefaultNetworkMonitor) — a single
         // attempt silently bails and leaves the core with no interface.
         runCatching {
-            val active = cm.activeNetwork
-            val underlying = if (active != null &&
-                cm.getNetworkCapabilities(active)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true
-            ) active else cm.allNetworks.firstOrNull { n ->
-                cm.getNetworkCapabilities(n)?.let {
-                    it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                        it.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-                } == true
-            }
+            val underlying = currentUnderlyingNetwork()
             if (underlying != null) {
+                underlyingNetwork = underlying
                 for (i in 0 until 10) {
                     val name = cm.getLinkProperties(underlying)?.interfaceName
                     val index = name?.let { runCatching { JavaNetworkInterface.getByName(it)?.index }.getOrNull() }
@@ -670,9 +856,11 @@ class QartzVpnService :
     override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
         networkCallback?.let { runCatching { App.connectivity.unregisterNetworkCallback(it) } }
         networkCallback = null
+        underlyingNetwork = null
     }
 
     private fun pushDefaultInterface(listener: InterfaceUpdateListener, network: Network) {
+        underlyingNetwork = network
         val linkProperties = App.connectivity.getLinkProperties(network) ?: return
         val name = linkProperties.interfaceName ?: return
         val index = try {

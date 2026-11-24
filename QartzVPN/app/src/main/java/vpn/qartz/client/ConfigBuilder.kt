@@ -17,19 +17,25 @@ object ConfigBuilder {
     // (серт Cloudflare покрывает 1.1.1.1), поэтому резолв не нужен ни одному члену группы.
     private const val TEST_URL = "https://1.1.1.1/cdn-cgi/trace"
 
+    // 172.16.0.0/12 НЕ исключаем в route_exclude_address, т.к. сам TUN использует 172.19.0.1/30
+    // (для 172.16.0.0/12 работает правило ip_is_private -> direct при allowLan=true).
     private val LAN_RANGES = listOf(
-        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/4",
+        "10.0.0.0/8", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/4",
     )
 
-    private val RU_SUFFIXES = listOf(".ru", ".su", "xn--p1ai")
+    private val LAN_SUFFIXES = listOf(
+        ".local", ".lan", ".home", ".internal", ".intranet", ".localdomain", ".corp",
+    )
+
+    private val RU_SUFFIXES = listOf(".ru", ".su", ".xn--p1ai")
 
     fun build(
         sbServers: List<ServerSpec>,
         xrayMembers: List<XrayConfig.Member> = emptyList(),
         awgServers: List<ServerSpec> = emptyList(),
         directIps: List<String> = emptyList(),
-        allowLan: Boolean = true,
-        ruDirect: Boolean = true,
+        allowLan: Boolean = false,
+        ruDirect: Boolean = false,
         includePackages: List<String> = emptyList(),
         excludePackages: List<String> = emptyList(),
     ): String {
@@ -89,21 +95,17 @@ object ConfigBuilder {
         )
         outbounds.put(JSONObject().put("type", "direct").put("tag", "direct"))
 
-        // DNS: remote = DoH over the proxy; direct = the device's own resolver (via the direct
-        // outbound) for bootstrap, RU and the health-check host. NOTE: sing-box `type: local` is
-        // unusable on Android here — it hits ::1:53 (connection refused) — so we use the real
-        // network DNS passed in, falling back to a public resolver.
+        // DNS: remote = DoH через туннель (по умолчанию для всего трафика);
+        // direct = системный DNS текущей сети Android (через PlatformInterface.localDNSTransport ->
+        // DnsResolver по underlyingNetwork), используется для RU-доменов (при ruDirect=true),
+        // локальных/корпоративных зон (при allowLan=true) и системного bootstrap/probe.
         val dnsServers = JSONArray()
             .put(
                 JSONObject().put("type", "https").put("tag", "dns-remote")
                     .put("server", "8.8.8.8").put("detour", GROUP),
             )
-            // DoH with NO detour: sing-box dials a detour-less DNS server directly (past the tun via
-            // auto_detect_interface), which is what we want for bootstrap/RU/probe. Detouring to the
-            // plain direct outbound is rejected ("detour to an empty direct outbound makes no sense").
             .put(
-                JSONObject().put("type", "https").put("tag", "dns-direct")
-                    .put("server", "8.8.8.8"),
+                JSONObject().put("type", "local").put("tag", "dns-direct"),
             )
 
         val dnsRules = JSONArray()
@@ -115,6 +117,11 @@ object ConfigBuilder {
             val ruDns = JSONArray()
             RU_SUFFIXES.forEach { ruDns.put(it) }
             dnsRules.put(JSONObject().put("domain_suffix", ruDns).put("server", "dns-direct"))
+        }
+        if (allowLan) {
+            val lanDns = JSONArray()
+            LAN_SUFFIXES.forEach { lanDns.put(it) }
+            dnsRules.put(JSONObject().put("domain_suffix", lanDns).put("server", "dns-direct"))
         }
 
         val dns = JSONObject()
@@ -173,7 +180,12 @@ object ConfigBuilder {
             RU_SUFFIXES.forEach { ru.put(it) }
             rules.put(JSONObject().put("domain_suffix", ru).put("outbound", "direct"))
         }
-        rules.put(JSONObject().put("ip_is_private", true).put("outbound", "direct"))
+        if (allowLan) {
+            val lan = JSONArray()
+            LAN_SUFFIXES.forEach { lan.put(it) }
+            rules.put(JSONObject().put("domain_suffix", lan).put("outbound", "direct"))
+            rules.put(JSONObject().put("ip_is_private", true).put("outbound", "direct"))
+        }
 
         val route = JSONObject()
             .put("rules", rules)

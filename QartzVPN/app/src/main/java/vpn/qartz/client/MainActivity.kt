@@ -162,25 +162,47 @@ class MainActivity : AppCompatActivity() {
         startService(Intent(this, QartzVpnService::class.java).setAction(QartzVpnService.ACTION_STOP))
     }
 
-    /** Pull the latest servers from the saved subscription in the background, silently. */
-    private fun silentSubRefresh() {
+    /** Pull the latest servers from the saved subscription in the background. */
+    private fun silentSubRefresh(manual: Boolean = false) {
         val url = ProfileStore.subUrl(this).trim()
-        if (url.isBlank()) return
+        if (url.isBlank()) {
+            if (manual) toast("Подписка не настроена")
+            return
+        }
+        if (manual) toast("Обновляю подписку…")
         thread {
             try {
                 val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 10000
-                    readTimeout = 10000
+                    readTimeout = 30000 // панель собирает /sub опросом всех шлюзов
                     requestMethod = "GET"
                 }
                 val code = conn.responseCode
-                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                val text = if (code in 200..299) conn.inputStream.bufferedReader().use { it.readText() } else ""
                 conn.disconnect()
-                if (code in 200..299 && text.isNotBlank() && text != ProfileStore.loadLinks(this)) {
-                    runOnUiThread { ProfileStore.saveLinks(this, text) }
+                if (code !in 200..299 || !ProfileStore.hasValidServer(text)) {
+                    if (manual) {
+                        val reason = if (code !in 200..299) "HTTP $code" else "нет маршрутов в ответе"
+                        runOnUiThread { toast("Не удалось обновить подписку: $reason") }
+                    }
+                    return@thread
                 }
-            } catch (_: Exception) {
+                val before = ProfileStore.loadLinks(this)
+                val changed = ProfileStore.normalizeLinks(text) != ProfileStore.normalizeLinks(before)
+                runOnUiThread {
+                    if (changed) {
+                        ProfileStore.saveLinks(this, text)
+                        if (VpnState.stage.value != VpnState.Stage.Disconnected) {
+                            startService(Intent(this, QartzVpnService::class.java).setAction(QartzVpnService.ACTION_RELOAD))
+                        }
+                        if (manual) toast(getString(R.string.dev_refresh_done))
+                    } else if (manual) {
+                        toast("Подписка уже актуальна")
+                    }
+                }
+            } catch (e: Exception) {
                 // offline / DPI — keep the servers we already have
+                if (manual) runOnUiThread { toast("Не удалось обновить подписку: ${e.message ?: "нет связи"}") }
             }
         }
     }
@@ -277,7 +299,7 @@ class MainActivity : AppCompatActivity() {
         // конфиг (показывают сырые ссылки с адресами шлюзов) — лишь в инженерной сборке.
         val actions = mutableListOf<Pair<String, () -> Unit>>(
             Pair(getString(R.string.dev_update), { checkForUpdate(manual = true) }),
-            Pair(getString(R.string.dev_refresh), { silentSubRefresh(); toast(getString(R.string.dev_refresh_done)) }),
+            Pair(getString(R.string.dev_refresh), { silentSubRefresh(manual = true) }),
             Pair(getString(R.string.dev_change_sub), { startActivity(Intent(this, ActivationActivity::class.java)) }),
         )
         if (BuildConfig.DEV_TOOLS) {
